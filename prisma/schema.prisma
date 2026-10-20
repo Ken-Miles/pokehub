@@ -1,0 +1,345 @@
+// Pokémon Hub data model. Source of truth for the vault note "Data model".
+// Save blobs live in object storage; rows here only reference them.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PLAYER
+  MOD
+  ADMIN
+  OWNER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum EmailTokenKind {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+}
+
+enum SlotOrigin {
+  NEW
+  IMPORTED
+}
+
+enum SaveSource {
+  EMULATOR
+  IMPORT
+  TRADE
+  RESTORE
+  ADMIN
+}
+
+enum PokemonOrigin {
+  NATIVE
+  IMPORTED
+}
+
+enum RegistryStatus {
+  OK
+  CLONE_SUSPECT
+  FROZEN
+}
+
+enum TradeState {
+  OPEN
+  COMMITTING
+  COMPLETED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum FlagStatus {
+  OPEN
+  DISMISSED
+  ACTIONED
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+// ---------------------------------------------------------------- accounts
+
+model User {
+  id               String     @id @default(cuid())
+  username         String     @unique // stored lowercase
+  email            String     @unique // stored lowercase
+  emailVerifiedAt  DateTime?
+  passwordHash     String // argon2id
+  role             Role       @default(PLAYER)
+  status           UserStatus @default(ACTIVE)
+  friendCode       String     @unique // 0000-0000-0000
+  tokenVersion     Int        @default(0) // bump = sign out everywhere
+  acceptUnverified Boolean    @default(false) // ADR-008
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  slots           GameSlot[]
+  emailTokens     EmailToken[]
+  authEvents      AuthEvent[]
+  friendsSent     Friendship[] @relation("requester")
+  friendsReceived Friendship[] @relation("addressee")
+  blocking        Block[]      @relation("blocker")
+  blockedBy       Block[]      @relation("blocked")
+  reportsFiled    Report[]     @relation("reporter")
+  reportsAgainst  Report[]     @relation("reportTarget")
+
+  @@map("users")
+}
+
+model EmailToken {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      EmailTokenKind
+  tokenHash String         @unique // sha256 of the emailed token
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([userId])
+  @@map("email_tokens")
+}
+
+model AuthEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  username  String
+  event     String // login | login_failed | logout | password_reset
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("auth_events")
+}
+
+model Friendship {
+  id          String           @id @default(cuid())
+  requesterId String
+  requester   User             @relation("requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addresseeId String
+  addressee   User             @relation("addressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  acceptedAt  DateTime?
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
+  @@map("friendships")
+}
+
+model Block {
+  blockerId String
+  blocker   User     @relation("blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([blockerId, blockedId])
+  @@map("blocks")
+}
+
+// ---------------------------------------------------------------- saves
+
+model GameSlot {
+  id         String     @id @default(cuid())
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slotNumber Int // 1..3, unique among live slots (partial index in migration)
+  gameCode   String // header code, e.g. BPEE
+  language   String // last header letter: E, P, J, D, F, I, S
+  origin     SlotOrigin
+
+  trainerName String?
+  trainerId   Int?
+  secretId    Int?
+
+  currentVersionId   String?      @unique
+  currentVersion     SaveVersion? @relation("current", fields: [currentVersionId], references: [id])
+  // ADR-007: versions older than this cannot be restored.
+  lastTradeVersionId String?      @unique
+  lastTradeVersion   SaveVersion? @relation("lastTrade", fields: [lastTradeVersionId], references: [id])
+  // ADR-005: the only lock. Postgres is the source of truth.
+  lockedByTradeId    String?
+  lockedByTrade      Trade?       @relation("locks", fields: [lockedByTradeId], references: [id])
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  versions SaveVersion[]     @relation("versions")
+  registry PokemonRegistry[]
+  tradesA  Trade[]           @relation("aSlot")
+  tradesB  Trade[]           @relation("bSlot")
+
+  @@index([userId])
+  @@map("game_slots")
+}
+
+/// Immutable (NFR-07). Restores and trades create new rows.
+model SaveVersion {
+  id             String     @id @default(cuid())
+  slotId         String
+  slot           GameSlot   @relation("versions", fields: [slotId], references: [id], onDelete: Cascade)
+  parentId       String?
+  parent         SaveVersion?  @relation("lineage", fields: [parentId], references: [id])
+  children       SaveVersion[] @relation("lineage")
+  seq            Int // 1, 2, 3… per slot
+  storageKey     String
+  sha256         String
+  size           Int
+  playSeconds    Int
+  source         SaveSource
+  tradeId        String?
+  restoredFromId String?
+  createdAt      DateTime   @default(now())
+
+  currentFor   GameSlot?         @relation("current")
+  lastTradeFor GameSlot?         @relation("lastTrade")
+  flags        SaveFlag[]
+  sightings    PokemonSighting[]
+
+  @@unique([slotId, seq])
+  @@index([tradeId])
+  @@map("save_versions")
+}
+
+// ---------------------------------------------------------------- registry (FR-20, FR-22)
+
+model PokemonRegistry {
+  fingerprint        String         @id // sha256(PID+TID+SID+OT)[0..32]
+  species            Int
+  otName             String
+  tid                Int
+  sid                Int
+  currentSlotId      String? // null = released (slot deleted)
+  currentSlot        GameSlot?      @relation(fields: [currentSlotId], references: [id], onDelete: SetNull)
+  origin             PokemonOrigin
+  status             RegistryStatus @default(OK)
+  firstSeenVersionId String
+  firstSeenAt        DateTime       @default(now())
+  lastSeenAt         DateTime       @default(now())
+
+  sightings PokemonSighting[]
+
+  @@index([currentSlotId])
+  @@map("pokemon_registry")
+}
+
+/// Written only when something changed, so FR-22 can see a Pokémon "appear gradually".
+model PokemonSighting {
+  id          String          @id @default(cuid())
+  fingerprint String
+  pokemon     PokemonRegistry @relation(fields: [fingerprint], references: [fingerprint], onDelete: Cascade)
+  versionId   String
+  version     SaveVersion     @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  species     Int
+  level       Int
+  box         Int // -1 = party
+  slot        Int
+  createdAt   DateTime        @default(now())
+
+  @@index([fingerprint, createdAt])
+  @@map("pokemon_sightings")
+}
+
+// ---------------------------------------------------------------- trading (phase 2)
+
+model Trade {
+  id               String     @id @default(cuid())
+  state            TradeState @default(OPEN)
+  aSlotId          String
+  aSlot            GameSlot   @relation("aSlot", fields: [aSlotId], references: [id])
+  bSlotId          String?
+  bSlot            GameSlot?  @relation("bSlot", fields: [bSlotId], references: [id])
+  aBaseVersionId   String?
+  bBaseVersionId   String?
+  aOffer           Json?
+  bOffer           Json?
+  aConfirmedAt     DateTime?
+  bConfirmedAt     DateTime?
+  aResultVersionId String?
+  bResultVersionId String?
+  failureReason    String?
+  expiresAt        DateTime
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  completedAt      DateTime?
+
+  lockedSlots GameSlot[] @relation("locks")
+
+  @@index([state, expiresAt])
+  @@map("trades")
+}
+
+// ---------------------------------------------------------------- trust & moderation
+
+model SaveFlag {
+  id           String      @id @default(cuid())
+  versionId    String
+  version      SaveVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  kind         String // clone_conflict | duplicate_in_save | implausible_diff …
+  detail       Json
+  status       FlagStatus  @default(OPEN)
+  reviewedById String?
+  createdAt    DateTime    @default(now())
+  reviewedAt   DateTime?
+
+  @@index([status, createdAt])
+  @@map("save_flags")
+}
+
+model Report {
+  id            String       @id @default(cuid())
+  reporterId    String
+  reporter      User         @relation("reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetUserId  String?
+  targetUser    User?        @relation("reportTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetTradeId String?
+  reason        String
+  status        ReportStatus @default(OPEN)
+  resolvedById  String?
+  createdAt     DateTime     @default(now())
+  resolvedAt    DateTime?
+
+  @@index([status, createdAt])
+  @@map("reports")
+}
+
+/// Append-only (FR-24): a trigger in the initial migration rejects UPDATE/DELETE.
+model AuditEvent {
+  id         String   @id @default(cuid())
+  // Plain id, no FK: a cascading SET NULL would be an UPDATE, which the trigger forbids.
+  actorId    String?
+  action     String // slot.create, save.import, save.restore, trade.state …
+  targetType String
+  targetId   String
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([actorId, createdAt])
+  @@map("audit_events")
+}

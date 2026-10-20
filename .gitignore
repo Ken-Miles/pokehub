@@ -1,0 +1,33 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# env
+.env
+.env*.local
+
+# .NET
+save-service/bin/
+save-service/obj/
+
+# misc
+.DS_Store
+/coverage
+.vscode/*
+!.vscode/extensions.json
+.idea
+.claude/
+
+# never commit game files or saves
+*.gba
+*.gbc
+*.nds
+*.sav
+
+# No-Intro DATs (download by hand; see scripts/import-nointro-dat.ts)
+data/no-intro/*.dat

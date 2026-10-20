@@ -1,0 +1,45 @@
+# Local backing services. The web app and worker run on the host (npm run dev / dev:worker),
+# like Stork. Everything binds to 127.0.0.1 only.
+name: pokehub
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pokehub
+      POSTGRES_PASSWORD: pokehub
+      POSTGRES_DB: pokehub
+    ports: ["127.0.0.1:5433:5432"] # 5433 so it never clashes with a local Postgres
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pokehub"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
+
+  # S3-compatible stand-in for Cloudflare R2 (SeaweedFS; MinIO no longer publishes images).
+  # No identities configured = no auth, dev only. The app creates the bucket on first use.
+  s3:
+    image: chrislusf/seaweedfs:4.48
+    command: server -dir=/data -s3 -s3.port=8333 -ip.bind=0.0.0.0 -volume.max=0
+    ports: ["127.0.0.1:9000:8333"]
+    volumes: [s3data:/data]
+
+  # .NET + PKHeX.Core. Stateless, read-only filesystem, no capabilities.
+  # Dev publishes it on localhost so the host-run app can reach it. Production runs it with
+  # network_mode: none and LISTEN_SOCKET (unix socket) — see docs/design.md (NFR-04).
+  save-service:
+    build: ./save-service
+    image: pokehub-save-service:dev
+    ports: ["127.0.0.1:5080:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  pgdata:
+  s3data:

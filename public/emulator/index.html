@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Emulator</title>
+  <!--
+    Pokémon Hub runs EmulatorJS (GPL-3.0, https://github.com/EmulatorJS/EmulatorJS)
+    unmodified, as its own program inside this iframe (ADR-009). The app talks to it
+    only through postMessage — see player.js.
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; }
+    #game { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <script src="player.js"></script>
+</body>
+</html>
