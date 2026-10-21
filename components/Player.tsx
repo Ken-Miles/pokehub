@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
+import { FileDrop } from '@/components/FileDrop'
 import { forgetRom, inspectRom, rememberRom, rememberedRom } from '@/lib/client/rom'
+import { SaveSync, indexedDbQueue, romCheck, type PendingSave, type SyncStatus } from '@/lib/client/save-sync'
 import type { Platform } from '@/lib/games'
 
-type Phase = 'need-rom' | 'loading' | 'playing' | 'stale' | 'locked' | 'error'
-type Sync = 'synced' | 'syncing' | 'offline' | 'flagged'
+type Phase = 'need-rom' | 'loading' | 'device-conflict' | 'playing' | 'stale' | 'locked' | 'error'
 
 interface Props {
   slotId: string
@@ -19,42 +20,74 @@ interface Props {
 
 /**
  * Hosts the emulator iframe (ADR-009) and keeps the slot's cloud save in sync
- * (FR-08). Every upload names the version it was built on; a 409 means this tab
- * is stale (another tab, a trade or a restore) and the emulator stops (ADR-006).
+ * (FR-08) through SaveSync: unsent saves wait in IndexedDB and are retried;
+ * every upload names the version it was built on, and a 409 means this tab is
+ * stale (another tab, a trade or a restore), so the emulator stops (ADR-006).
  */
 export function Player({ slotId, platform, core, gameCode, gameName, emulatorData }: Props) {
   const frame = useRef<HTMLIFrameElement>(null)
   const rom = useRef<ArrayBuffer | null>(null)
-  const save = useRef<ArrayBuffer | null>(null)
-  const versionId = useRef<string>('none')
-  const mine = useRef(new Set<string>())
-  const uploading = useRef<Promise<void>>(Promise.resolve())
+  const bootSave = useRef<ArrayBuffer | null>(null)
+  const sync = useRef<SaveSync | null>(null)
   const [phase, setPhase] = useState<Phase>('need-rom')
-  const [sync, setSync] = useState<Sync>('synced')
+  const [status, setStatus] = useState<SyncStatus>({ state: 'synced', flagged: false })
+  const [deviceSave, setDeviceSave] = useState<PendingSave | null>(null)
   const [error, setError] = useState('')
   const [remember, setRemember] = useState(true)
 
   const send = (msg: object, transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage(msg, location.origin, transfer)
 
-  const stop = useCallback((next: Phase) => {
+  const stop = useCallback((next: 'stale' | 'locked') => {
     send({ type: 'pause' })
+    sync.current?.halt(next === 'stale' ? 'conflict' : 'locked')
     setPhase(next)
   }, [])
 
-  const start = useCallback(async (bytes: ArrayBuffer) => {
-    setPhase('loading')
-    const res = await fetch(`/api/slots/${slotId}/saves/current`, { cache: 'no-store' })
-    if (!res.ok) {
-      setError('Could not load your cloud save.')
-      return setPhase('error')
+  // One SaveSync per slot; its status drives the badge and stops the game on 409/423.
+  useEffect(() => {
+    const s = new SaveSync({
+      slotId,
+      platform,
+      queue: indexedDbQueue,
+      onStatus: (st) => {
+        setStatus(st)
+        if (st.state === 'conflict' || st.state === 'locked') {
+          send({ type: 'pause' })
+          setPhase((p) => (p === 'playing' ? (st.state === 'conflict' ? 'stale' : 'locked') : p))
+        }
+      },
+    })
+    sync.current = s
+    const online = () => s.retryNow()
+    window.addEventListener('online', online)
+    return () => {
+      window.removeEventListener('online', online)
+      s.dispose()
     }
-    versionId.current = res.headers.get('x-version-id') ?? 'none'
-    save.current = res.status === 204 ? null : await res.arrayBuffer()
-    rom.current = bytes
-    if (res.headers.get('x-locked') === '1') return setPhase('locked')
-    setPhase('playing')
-  }, [slotId])
+  }, [slotId, platform])
+
+  const start = useCallback(
+    async (bytes: ArrayBuffer) => {
+      setPhase('loading')
+      const res = await fetch(`/api/slots/${slotId}/saves/current`, { cache: 'no-store' })
+      if (!res.ok) {
+        setError('Could not load your cloud save.')
+        return setPhase('error')
+      }
+      rom.current = bytes
+      const serverSave = res.status === 204 ? null : await res.arrayBuffer()
+      if (res.headers.get('x-locked') === '1') return setPhase('locked')
+      const boot = await sync.current!.boot(res.headers.get('x-version-id') ?? 'none', serverSave)
+      if ('conflict' in boot) {
+        setDeviceSave(boot.conflict)
+        return setPhase('device-conflict')
+      }
+      bootSave.current = boot.save
+      setPhase('playing')
+    },
+    [slotId],
+  )
 
   // Try a remembered game file first (FR-04).
   useEffect(() => {
@@ -71,7 +104,7 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
       const check = await fetch('/api/games/verify', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ platform: inspected.platform, code: inspected.code, sha1: inspected.sha1 }),
+        body: JSON.stringify(romCheck(inspected)),
       })
       if (!check.ok) throw new Error((await check.json()).message)
       if (remember) await rememberRom(gameCode, inspected.bytes)
@@ -81,31 +114,6 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
     }
   }
 
-  const upload = useCallback(
-    (bytes: ArrayBuffer) => {
-      uploading.current = uploading.current.then(async () => {
-        setSync('syncing')
-        try {
-          const res = await fetch(`/api/slots/${slotId}/saves`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/octet-stream', 'x-parent-version': versionId.current },
-            body: bytes,
-          })
-          if (res.status === 409) return stop('stale')
-          if (res.status === 423) return stop('locked')
-          if (!res.ok) throw new Error(String(res.status))
-          const body = await res.json()
-          versionId.current = body.versionId
-          mine.current.add(body.versionId)
-          setSync(body.flagged ? 'flagged' : 'synced')
-        } catch {
-          setSync('offline') // the next in-game save retries with the same parent
-        }
-      })
-    },
-    [slotId, stop],
-  )
-
   // Messages from the emulator iframe.
   useEffect(() => {
     if (phase !== 'playing') return
@@ -113,28 +121,41 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
       if (e.origin !== location.origin || e.source !== frame.current?.contentWindow) return
       if (e.data?.type === 'ready' && rom.current) {
         const romCopy = rom.current.slice(0)
-        const saveCopy = save.current ? save.current.slice(0) : null
+        const saveCopy = bootSave.current ? bootSave.current.slice(0) : null
         send({ type: 'boot', rom: romCopy, save: saveCopy, core, data: emulatorData }, saveCopy ? [romCopy, saveCopy] : [romCopy])
       } else if (e.data?.type === 'save') {
-        upload(e.data.bytes)
+        void sync.current?.submit(e.data.bytes)
+      } else if (e.data?.type === 'unchanged') {
+        void sync.current?.retryNow()
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [phase, emulatorData, upload])
+  }, [phase, core, emulatorData])
 
   // Another tab, a restore or (later) a trade moved this slot on: stop before we overwrite it.
   useEffect(() => {
     const socket = io({ path: '/socket.io' })
     socket.on('slot:updated', async (ev: { slotId: string; versionId: string }) => {
-      if (ev.slotId !== slotId) return
-      await uploading.current
-      if (!mine.current.has(ev.versionId) && ev.versionId !== versionId.current) stop('stale')
+      if (ev.slotId !== slotId || !sync.current) return
+      await sync.current.idle()
+      if (!sync.current.owns(ev.versionId)) stop('stale')
     })
     return () => {
       socket.disconnect()
     }
   }, [slotId, stop])
+
+  function syncNow() {
+    send({ type: 'flush' })
+    void sync.current?.retryNow()
+  }
+
+  async function useCloudSave() {
+    await sync.current?.discardPending()
+    setDeviceSave(null)
+    if (rom.current) await start(rom.current)
+  }
 
   if (phase === 'need-rom' || phase === 'error') {
     return (
@@ -144,12 +165,7 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
           Choose a backup of a game you own. It stays on this device and is never uploaded — only your save file is
           synced.
         </p>
-        <input
-          type="file"
-          accept=".gba"
-          onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])}
-          className="block w-full text-sm"
-        />
+        <FileDrop label={`Your ${gameName} backup (.gba)`} accept=".gba" onFile={pick} />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
           Remember this game on this device
@@ -159,10 +175,21 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
     )
   }
 
+  if (phase === 'device-conflict' && deviceSave) {
+    return <DeviceConflict save={deviceSave} gameCode={gameCode} onContinue={useCloudSave} />
+  }
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between text-sm">
-        <SyncBadge sync={sync} />
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <div className="flex items-center gap-3">
+          <SyncBadge status={status} />
+          {phase === 'playing' && status.state !== 'syncing' && (
+            <button className="underline" onClick={syncNow}>
+              Sync now
+            </button>
+          )}
+        </div>
         <button className="text-muted underline" onClick={() => forgetRom(gameCode).then(() => location.reload())}>
           Forget game file on this device
         </button>
@@ -191,14 +218,49 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
   )
 }
 
-function SyncBadge({ sync }: { sync: Sync }) {
-  const label = {
-    synced: 'Saved to cloud',
-    syncing: 'Syncing…',
-    offline: 'Offline — will retry on next save',
-    flagged: 'Saved — some Pokémon flagged for review',
-  }[sync]
-  return <span className={sync === 'offline' || sync === 'flagged' ? 'text-warn' : 'text-muted'}>{label}</span>
+function SyncBadge({ status }: { status: SyncStatus }) {
+  const [label, warn] = {
+    synced: [status.state === 'synced' && status.flagged ? 'Saved — some Pokémon flagged for review' : 'Saved to cloud', status.state === 'synced' && status.flagged],
+    syncing: ['Syncing…', false],
+    offline: ["Offline — your save is kept on this device and will upload when you're back", true],
+    conflict: ['Not syncing — your save changed somewhere else', true],
+    locked: ['Locked while a trade finishes', true],
+    rejected: [status.state === 'rejected' ? status.message : '', true],
+  }[status.state] as [string, boolean]
+  return <span className={warn ? 'text-warn' : 'text-muted'}>{label}</span>
+}
+
+/** A save from an earlier visit that can't be uploaded because the cloud moved on. Nothing is lost silently. */
+function DeviceConflict({ save, gameCode, onContinue }: { save: PendingSave; gameCode: string; onContinue: () => void }) {
+  const [href, setHref] = useState('')
+  useEffect(() => {
+    const url = URL.createObjectURL(new Blob([save.bytes]))
+    setHref(url)
+    return () => URL.revokeObjectURL(url)
+  }, [save])
+  const made = new Date(save.savedAt)
+
+  return (
+    <div className="mx-auto max-w-xl space-y-4 rounded-xl border border-warn bg-card p-6">
+      <h2 className="text-lg font-semibold">This device has a save that never reached the cloud</h2>
+      <p className="text-sm text-muted">
+        It was made {made.toLocaleString()}, but your cloud save has changed since (another device, a restore or a
+        trade), so it can't be uploaded. Keep a copy if you want it, then continue with the cloud save.
+      </p>
+      <div className="flex flex-wrap gap-3 text-sm">
+        <a
+          className="rounded-md border border-line px-3 py-1.5"
+          href={href}
+          download={`${gameCode}-unsynced-${made.toISOString().slice(0, 16).replace(':', '')}.sav`}
+        >
+          Download this device&apos;s save
+        </a>
+        <button className="rounded-md bg-accent px-3 py-1.5 font-medium text-white" onClick={onContinue}>
+          Continue with the cloud save
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function Banner({ children }: { children: React.ReactNode }) {

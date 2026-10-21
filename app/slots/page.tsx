@@ -3,9 +3,11 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
+import { FileDrop } from '@/components/FileDrop'
 import { VerifyEmailBanner } from '@/components/VerifyEmailBanner'
 import { api, formatPlayTime } from '@/lib/client/api'
 import { inspectRom, rememberRom } from '@/lib/client/rom'
+import { romCheck, saveProblem } from '@/lib/client/save-sync'
 
 interface Slot {
   id: string
@@ -51,13 +53,17 @@ function Slots() {
     setError('')
     try {
       const rom = await inspectRom(romFile)
+      // Check the save before creating anything, and never send a file that isn't save-sized (NFR-01).
+      const saveBytes = saveFile ? await saveFile.arrayBuffer() : null
+      const problem = saveBytes ? saveProblem(rom.platform, saveBytes) : null
+      if (problem) throw new Error(problem)
       const { slot } = await api<{ slot: { id: string } }>('/api/slots', {
         method: 'POST',
-        body: JSON.stringify({ platform: rom.platform, code: rom.code, sha1: rom.sha1, origin }),
+        body: JSON.stringify({ ...romCheck(rom), origin }),
       })
       await rememberRom(rom.code, rom.bytes)
-      if (origin === 'IMPORTED' && saveFile) {
-        await api(`/api/slots/${slot.id}/import`, { method: 'POST', body: await saveFile.arrayBuffer() })
+      if (origin === 'IMPORTED' && saveBytes) {
+        await api(`/api/slots/${slot.id}/import`, { method: 'POST', body: saveBytes })
       }
       router.push(`/play/${slot.id}`)
     } catch (e) {
@@ -114,15 +120,15 @@ function NewSlot({ busy, onCreate }: { busy: boolean; onCreate: (o: 'NEW' | 'IMP
           <input type="radio" checked={mode === 'IMPORTED'} onChange={() => setMode('IMPORTED')} /> Import an existing save
         </label>
       </div>
-      <label className="block space-y-1 text-sm">
-        <span>Your game backup (.gba) — stays on this device</span>
-        <input type="file" accept=".gba" onChange={(e) => setRom(e.target.files?.[0])} className="block w-full" />
-      </label>
+      <FileDrop label="Your game backup (.gba)" hint="Stays on this device — click to choose, or drop it here" accept=".gba" file={rom} onFile={setRom} />
       {mode === 'IMPORTED' && (
-        <label className="block space-y-1 text-sm">
-          <span>Save file (.sav) — imported Pokémon start unverified</span>
-          <input type="file" accept=".sav,.srm" onChange={(e) => setSave(e.target.files?.[0])} className="block w-full" />
-        </label>
+        <FileDrop
+          label="Save file (.sav)"
+          hint="From a cartridge dump or another emulator — imported Pokémon start unverified"
+          accept=".sav,.srm"
+          file={save}
+          onFile={setSave}
+        />
       )}
       <button
         disabled={busy || !rom || (mode === 'IMPORTED' && !save)}

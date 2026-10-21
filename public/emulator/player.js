@@ -3,8 +3,10 @@
  *
  * parent → iframe   { type: 'boot', rom: ArrayBuffer, save: ArrayBuffer|null, core: 'gba', data: url }
  *                   { type: 'pause' } | { type: 'resume' }
+ *                   { type: 'flush' } — "Sync now": read save RAM immediately
  * iframe → parent   { type: 'ready' } | { type: 'started' }
  *                   { type: 'save', bytes: ArrayBuffer, sha256: string }
+ *                   { type: 'unchanged' } — answer to a flush with nothing new
  *
  * The game file arrives as bytes from the parent page and never leaves the browser.
  * EmulatorJS has no reliable "game saved" event, so save RAM is polled and hashed.
@@ -54,9 +56,13 @@
     g.loadSaveFiles()
   }
 
-  async function poll() {
+  // `force` (Sync now) skips the two-poll debounce: the player asked for it.
+  async function poll(force) {
     var g = gm()
-    if (!g || paused) return
+    if (!g || paused) {
+      if (force) post({ type: 'unchanged' })
+      return
+    }
     var bytes
     try {
       bytes = g.getSaveFile() // flushes save RAM to the virtual FS, then reads it
@@ -67,10 +73,11 @@
     var hash = await sha256(bytes)
     if (hash === lastHash) {
       pendingHash = null
+      if (force) post({ type: 'unchanged' })
       return
     }
     // Debounce: only report once two polls agree, so a save in progress isn't sent half-written.
-    if (hash !== pendingHash) {
+    if (!force && hash !== pendingHash) {
       pendingHash = hash
       return
     }
@@ -119,7 +126,9 @@
         gm().restart() // boot again so the game reads the cloud save from the start
       }
       post({ type: 'started' })
-      setInterval(poll, POLL_MS)
+      setInterval(function () {
+        poll(false)
+      }, POLL_MS)
     }
     var script = document.createElement('script')
     script.src = msg.data + 'loader.js'
@@ -131,6 +140,7 @@
     if (e.data.type === 'boot') boot(e.data)
     else if (e.data.type === 'pause') setPaused(true)
     else if (e.data.type === 'resume') setPaused(false)
+    else if (e.data.type === 'flush') poll(true)
   })
 
   post({ type: 'ready' })
