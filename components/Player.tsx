@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { FileDrop } from '@/components/FileDrop'
 import { forgetRom, inspectRom, rememberRom, rememberedRom } from '@/lib/client/rom'
+import { legend, type Binding } from '@/lib/client/controls'
 import { SaveSync, indexedDbQueue, romCheck, type PendingSave, type SyncStatus } from '@/lib/client/save-sync'
 import type { Platform } from '@/lib/games'
 
@@ -34,12 +35,17 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
   const [deviceSave, setDeviceSave] = useState<PendingSave | null>(null)
   const [error, setError] = useState('')
   const [remember, setRemember] = useState(true)
+  const [bindings, setBindings] = useState<Binding[] | null>(null)
+  const [fastForward, setFastForward] = useState(false)
 
   const send = (msg: object, transfer: Transferable[] = []) =>
     frame.current?.contentWindow?.postMessage(msg, location.origin, transfer)
 
+  // The cloud save moved on without this tab: pause, and drop save states made
+  // before that change so none can be loaded and saved over it (ADR-016).
   const stop = useCallback((next: 'stale' | 'locked') => {
     send({ type: 'pause' })
+    send({ type: 'clear-states' })
     sync.current?.halt(next === 'stale' ? 'conflict' : 'locked')
     setPhase(next)
   }, [])
@@ -54,6 +60,7 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
         setStatus(st)
         if (st.state === 'conflict' || st.state === 'locked') {
           send({ type: 'pause' })
+          send({ type: 'clear-states' })
           setPhase((p) => (p === 'playing' ? (st.state === 'conflict' ? 'stale' : 'locked') : p))
         }
       },
@@ -125,6 +132,9 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
         send({ type: 'boot', rom: romCopy, save: saveCopy, core, data: emulatorData }, saveCopy ? [romCopy, saveCopy] : [romCopy])
       } else if (e.data?.type === 'save') {
         void sync.current?.submit(e.data.bytes)
+      } else if (e.data?.type === 'controls') {
+        setBindings(e.data.keys)
+        setFastForward(!!e.data.fastForward)
       } else if (e.data?.type === 'unchanged') {
         void sync.current?.retryNow()
       }
@@ -189,6 +199,15 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
               Sync now
             </button>
           )}
+          {phase === 'playing' && bindings && (
+            <button
+              aria-pressed={fastForward}
+              className={fastForward ? 'rounded-md bg-accent px-2 py-0.5 font-medium text-white' : 'underline'}
+              onClick={() => send({ type: 'fast-forward', on: !fastForward })}
+            >
+              Fast-forward {fastForward ? 'on' : 'off'}
+            </button>
+          )}
         </div>
         <button className="text-muted underline" onClick={() => forgetRom(gameCode).then(() => location.reload())}>
           Forget game file on this device
@@ -214,7 +233,34 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
           className="aspect-[3/2] w-full rounded-xl border border-line bg-black"
         />
       )}
+      {phase === 'playing' && bindings && <ControlsPanel bindings={bindings} />}
     </div>
+  )
+}
+
+/** FR-06: current keys (remaps included) and where to change them. */
+function ControlsPanel({ bindings }: { bindings: Binding[] }) {
+  const rows = legend(bindings)
+  return (
+    <details className="rounded-xl border border-line bg-card p-4 text-sm" open>
+      <summary className="cursor-pointer font-semibold">Controls</summary>
+      <div className="mt-3 grid gap-x-8 gap-y-1 sm:grid-cols-2">
+        {rows.map((r) => (
+          <div key={r.action} className="flex justify-between gap-4 border-b border-line py-1">
+            <span className="text-muted">{r.action}</span>
+            <span>
+              <kbd className="font-mono">{r.key}</kbd>
+              {r.pad && <span className="ml-2 text-muted">· {r.pad}</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-muted">
+        Gamepads work as soon as you press a button. Change keys or gamepad buttons under <b>Control Settings</b> (the
+        gamepad icon in the emulator&apos;s bar); fullscreen and volume are there too. Save states stay in this tab only:
+        they&apos;re gone when you reload, and cleared if your cloud save changes somewhere else.
+      </p>
+    </details>
   )
 }
 
