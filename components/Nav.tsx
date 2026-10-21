@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { signOut, useSession } from 'next-auth/react'
+import { isAdmin } from '@/lib/rbac'
 
 export function Nav() {
   const { data, status } = useSession()
@@ -13,6 +14,7 @@ export function Nav() {
         </Link>
         {data && <Link href="/slots">My games</Link>}
         {data && <Link href="/friends">Friends</Link>}
+        {data && isAdmin(data.user.role) && <Link href="/admin">Admin</Link>}
         <span className="flex-1" />
         {status === 'authenticated' ? (
           <>

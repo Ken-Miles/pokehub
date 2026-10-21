@@ -4,7 +4,7 @@ import { HttpError } from '@/lib/http'
 import { maxSaveBytes } from '@/lib/games'
 import { badSize } from '@/lib/save-rules'
 
-export const MAX_SLOTS = 3 // FR-10
+export { MAX_SLOTS } from '@/lib/save-rules'
 
 export async function loadOwnSlot(userId: string, slotId: string): Promise<GameSlot> {
   const slot = await prisma.gameSlot.findFirst({ where: { id: slotId, userId, deletedAt: null } })

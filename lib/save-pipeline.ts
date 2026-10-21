@@ -5,7 +5,8 @@ import { prisma } from '@/lib/db'
 import { saveFamilyMatchesGame } from '@/lib/games'
 import { HttpError } from '@/lib/http'
 import { emitToUser } from '@/lib/realtime'
-import { reconcile, type Conflict } from '@/lib/registry'
+import type { Conflict } from '@/lib/registry'
+import { applyRegistry } from '@/lib/registry-apply'
 import { checkImport, checkUpload } from '@/lib/save-rules'
 import { SaveServiceError, saveService, type ParsedSave } from '@/lib/save-service'
 import { putSave, saveKey } from '@/lib/storage'
@@ -94,96 +95,27 @@ export async function ingestSave(opts: {
       throw new HttpError(409, 'stale_parent', 'Your save changed somewhere else. Reload to continue.')
     }
 
-    // ---- registry (FR-20)
-    const fingerprints = [...new Set(parsed.pokemon.map((p) => p.fingerprint))]
-    const existing = await tx.pokemonRegistry.findMany({
-      where: { fingerprint: { in: fingerprints } },
-      select: { fingerprint: true, currentSlotId: true, species: true },
-    })
-    const ownerIds = [...new Set(existing.map((r) => r.currentSlotId).filter((id): id is string => !!id))]
-    const live = await tx.gameSlot.findMany({ where: { id: { in: ownerIds }, deletedAt: null }, select: { id: true } })
-    const last = await tx.pokemonSighting.findMany({
-      where: { fingerprint: { in: fingerprints }, version: { slotId: slot.id } },
-      orderBy: { createdAt: 'desc' },
-      distinct: ['fingerprint'],
-      select: { fingerprint: true, species: true, level: true },
-    })
-
-    const r = reconcile({
+    const conflicts = await applyRegistry(tx, {
       slotId: slot.id,
+      versionId: version.id,
       seen: parsed.pokemon,
-      existing: new Map(existing.map((e) => [e.fingerprint, e])),
-      liveSlotIds: new Set(live.map((s) => s.id)),
       newOrigin: source === 'IMPORT' ? 'IMPORTED' : 'NATIVE',
-      lastSightings: new Map(last.map((s) => [s.fingerprint, s])),
     })
 
-    if (r.inserts.length) {
-      await tx.pokemonRegistry.createMany({
-        data: r.inserts.map((p) => ({
-          fingerprint: p.fingerprint,
-          species: p.species,
-          otName: p.otName,
-          tid: p.tid,
-          sid: p.sid,
-          currentSlotId: slot.id,
-          origin: p.origin,
-          firstSeenVersionId: version.id,
-        })),
-        skipDuplicates: true,
-      })
-    }
-    if (r.claims.length) {
-      await tx.pokemonRegistry.updateMany({
-        where: { fingerprint: { in: r.claims } },
-        data: { currentSlotId: slot.id, lastSeenAt: new Date() },
-      })
-    }
-    if (r.touches.length) {
-      await tx.pokemonRegistry.updateMany({ where: { fingerprint: { in: r.touches } }, data: { lastSeenAt: new Date() } })
-    }
-    if (r.conflicts.length) {
-      // We never drop a player's progress: the save is stored, but every copy of a
-      // conflicting Pokémon becomes untradeable until a moderator looks at it.
-      await tx.pokemonRegistry.updateMany({
-        where: { fingerprint: { in: r.conflicts.map((c) => c.fingerprint) } },
-        data: { status: 'CLONE_SUSPECT' },
-      })
-      await tx.saveFlag.createMany({
-        data: r.conflicts.map((c) => ({
-          versionId: version.id,
-          kind: c.reason === 'duplicate_in_save' ? 'duplicate_in_save' : 'clone_conflict',
-          detail: { fingerprint: c.fingerprint, ownerSlotId: c.ownerSlotId },
-        })),
-      })
-    }
-    if (r.sightings.length) {
-      await tx.pokemonSighting.createMany({
-        data: r.sightings.map((p) => ({
-          fingerprint: p.fingerprint,
-          versionId: version.id,
-          species: p.species,
-          level: p.level,
-          box: p.box,
-          slot: p.slot,
-        })),
-      })
-    }
-
-    if (source !== 'EMULATOR' || r.conflicts.length) {
+    if (source !== 'EMULATOR' || conflicts.length) {
       await audit(
         {
           actorId,
           action: source === 'IMPORT' ? 'save.import' : source === 'RESTORE' ? 'save.restore' : 'save.upload',
           targetType: 'slot',
           targetId: slot.id,
-          payload: { versionId: version.id, restoredFromId: opts.restoredFromId ?? null, conflicts: r.conflicts.length },
+          payload: { versionId: version.id, restoredFromId: opts.restoredFromId ?? null, conflicts: conflicts.length },
         },
         tx,
       )
     }
 
-    return { version, created: true, conflicts: r.conflicts }
+    return { version, created: true, conflicts }
   })
 
   // Other tabs on this slot are now stale; tell them before they try to sync.

@@ -1,9 +1,10 @@
 import { getServerSession } from 'next-auth'
-import type { User } from '@prisma/client'
+import type { Role, User } from '@prisma/client'
 import { accountBlock } from '@/lib/account-rules'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/http'
+import { roleAtLeast } from '@/lib/rbac'
 
 /**
  * The signed-in user, re-checked against the database on every request so a ban
@@ -20,5 +21,12 @@ export async function currentUser(): Promise<User | null> {
 export async function requireUser(): Promise<User> {
   const user = await currentUser()
   if (!user) throw new HttpError(401, 'unauthenticated', 'Please log in.')
+  return user
+}
+
+/** For staff routes: the signed-in user, if their current role is at least `min`. */
+export async function requireRole(min: Role): Promise<User> {
+  const user = await requireUser()
+  if (!roleAtLeast(user.role, min)) throw new HttpError(403, 'forbidden', 'You do not have access to this.')
   return user
 }
