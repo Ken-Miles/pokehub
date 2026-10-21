@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { emailSchema, passwordSchema, usernameSchema } from '@/lib/account-rules'
+import { clientIp } from '@/lib/client-ip'
 import { prisma } from '@/lib/db'
 import { sendVerificationEmail } from '@/lib/email-tokens'
 import { newFriendCode } from '@/lib/friend-code'
@@ -12,7 +13,7 @@ const body = z.object({ username: usernameSchema, email: emailSchema, password: 
 
 /** FR-01: sign up. Unverified accounts can play and sync, not trade. */
 export const POST = route(async (req: Request) => {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip = clientIp(req.headers)
   if (!(await rateLimit(`register:${ip}`, 5, 3600))) throw new HttpError(429, 'rate_limited', 'Too many sign-ups. Try later.')
 
   const parsed = body.safeParse(await req.json())

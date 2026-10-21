@@ -1,3 +1,4 @@
+import { CLIENT_IP_HEADER } from '@/lib/client-ip'
 import { prisma } from '@/lib/db'
 import { newFriendCode } from '@/lib/friend-code'
 import { hashPassword, verifyPassword } from '@/lib/password'
@@ -37,7 +38,7 @@ async function user() {
 const post = (body: unknown, ip = `it-${run}-${n}`) =>
   new Request('http://localhost/api', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+    headers: { 'content-type': 'application/json', [CLIENT_IP_HEADER]: ip },
     body: JSON.stringify(body),
   })
 

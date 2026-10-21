@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { passwordSchema } from '@/lib/account-rules'
+import { clientIp } from '@/lib/client-ip'
 import { prisma } from '@/lib/db'
 import { consumeEmailToken } from '@/lib/email-tokens'
 import { HttpError, route } from '@/lib/http'
@@ -21,7 +22,7 @@ const PROBLEM = {
  * verifies the email.
  */
 export const POST = route(async (req: Request) => {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip = clientIp(req.headers)
   if (!(await rateLimit(`reset-confirm:${ip}`, 10, 3600))) throw new HttpError(429, 'rate_limited', 'Too many attempts. Try later.')
 
   const parsed = body.safeParse(await req.json())

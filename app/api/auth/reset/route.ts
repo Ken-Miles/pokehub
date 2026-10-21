@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { emailSchema } from '@/lib/account-rules'
+import { clientIp } from '@/lib/client-ip'
 import { prisma } from '@/lib/db'
 import { sendResetEmail } from '@/lib/email-tokens'
 import { HttpError, route } from '@/lib/http'
@@ -13,7 +14,7 @@ const body = z.object({ email: emailSchema })
  * tells anyone whether an email is registered.
  */
 export const POST = route(async (req: Request) => {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const ip = clientIp(req.headers)
   if (!(await rateLimit(`reset:${ip}`, 5, 3600))) throw new HttpError(429, 'rate_limited', 'Too many requests. Try later.')
 
   const parsed = body.safeParse(await req.json())

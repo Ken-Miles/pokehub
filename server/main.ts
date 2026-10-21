@@ -14,6 +14,8 @@ try {
   /* .env optional */
 }
 
+import { CLIENT_IP_HEADER, resolveClientIp } from '@/lib/client-ip'
+import { env } from '@/lib/env'
 import { setIO } from '@/lib/realtime'
 
 const dev = process.env.NODE_ENV !== 'production'
@@ -33,7 +35,13 @@ async function main() {
   const handle = app.getRequestHandler()
   await app.prepare()
 
-  const server = createServer((req, res) => handle(req, res))
+  // The one place the client IP is decided (lib/client-ip.ts). Anything the
+  // client sent under our header is overwritten here, before Next sees it.
+  const hops = env().TRUSTED_PROXY_HOPS
+  const server = createServer((req, res) => {
+    req.headers[CLIENT_IP_HEADER] = resolveClientIp(req.headers['x-forwarded-for'], req.socket.remoteAddress, hops)
+    return handle(req, res)
+  })
 
   const io = new SocketIOServer(server, {
     path: '/socket.io',

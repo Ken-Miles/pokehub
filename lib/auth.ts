@@ -1,6 +1,7 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import { accountBlock } from '@/lib/account-rules'
+import { clientIp } from '@/lib/client-ip'
 import { prisma } from '@/lib/db'
 import { verifyPassword } from '@/lib/password'
 import { rateLimit } from '@/lib/rate-limit'
@@ -27,14 +28,11 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials, req) {
         const login = (credentials?.login || '').trim().toLowerCase()
         const password = credentials?.password || ''
-        const ip =
-          (req?.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-          (req?.headers?.['x-real-ip'] as string) ||
-          null
+        const ip = clientIp(req?.headers)
         const userAgent = (req?.headers?.['user-agent'] as string) || null
 
         // Per IP and per account, so neither one machine nor many can grind a password.
-        const allowed = (await rateLimit(`login:${ip ?? 'unknown'}`, 10, 60)) && (await rateLimit(`login-user:${login}`, 20, 900))
+        const allowed = (await rateLimit(`login:${ip}`, 10, 60)) && (await rateLimit(`login-user:${login}`, 20, 900))
         if (!allowed) throw new Error(LOGIN_RATE_LIMITED)
 
         const user = login

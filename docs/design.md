@@ -83,3 +83,8 @@ other tabs stop.
 - `data/rom-hashes.json` must be filled from the No-Intro DAT before launch;
   `ALLOW_UNLISTED_ROMS` must be `false` in production.
 - Web app + worker: systemd, blue/green behind nginx (copy Stork v2's `deploy/`).
+  Set `TRUSTED_PROXY_HOPS=1` behind that nginx (2 if a CDN sits in front of it):
+  `server/main.ts` resolves the client IP for rate limits from the socket address
+  and that many `X-Forwarded-For` hops, and nginx must append with
+  `$proxy_add_x_forwarded_for`. Routes read only `lib/client-ip.ts#clientIp`, never
+  the raw headers, whose first entries the client controls.

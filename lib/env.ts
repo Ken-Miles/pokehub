@@ -14,6 +14,8 @@ const schema = z.object({
   S3_SECRET_ACCESS_KEY: z.string(),
   SAVE_SERVICE_URL: z.string().url().optional(),
   SAVE_SERVICE_SOCKET: z.string().optional(),
+  // Proxies in front of the app that append to X-Forwarded-For (lib/client-ip.ts).
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   ALLOW_UNLISTED_ROMS: z
     .enum(['true', 'false'])
     .default('false')
