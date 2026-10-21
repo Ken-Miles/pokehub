@@ -7,7 +7,7 @@ import { PLATFORMS, isAcceptedSaveSize, type Platform } from '@/lib/games'
 
 
 export interface Rejection {
-  status: 400 | 404 | 409 | 413 | 423
+  status: 400 | 403 | 404 | 409 | 413 | 423
   code: string
   message: string
 }

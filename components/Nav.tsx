@@ -12,6 +12,7 @@ export function Nav() {
           Pokémon Hub
         </Link>
         {data && <Link href="/slots">My games</Link>}
+        {data && <Link href="/friends">Friends</Link>}
         <span className="flex-1" />
         {status === 'authenticated' ? (
           <>
