@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { io } from 'socket.io-client'
@@ -185,7 +186,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Row({ name, children }: { name: string; children: React.ReactNode }) {
   return (
     <li className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
-      <span className="font-medium">{name}</span>
+      <Link href={`/u/${name}`} className="font-medium hover:underline">
+        {name}
+      </Link>
       <span className="flex gap-4">{children}</span>
     </li>
   )

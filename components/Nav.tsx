@@ -7,7 +7,7 @@ export function Nav() {
   const { data, status } = useSession()
   return (
     <header className="border-b border-line">
-      <nav className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-3 text-sm">
+      <nav className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 text-sm">
         <Link href="/" className="font-semibold">
           Pokémon Hub
         </Link>
@@ -16,7 +16,9 @@ export function Nav() {
         <span className="flex-1" />
         {status === 'authenticated' ? (
           <>
-            <span className="text-muted">{data.user.username}</span>
+            <Link href={`/u/${data.user.username}`} className="text-muted">
+              {data.user.username}
+            </Link>
             <button onClick={() => signOut({ callbackUrl: '/' })}>Log out</button>
           </>
         ) : (
