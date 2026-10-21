@@ -96,6 +96,8 @@ model User {
   passwordHash     String // argon2id
   role             Role       @default(PLAYER)
   status           UserStatus @default(ACTIVE)
+  statusReason     String? // shown to the user at login when suspended/banned (FR-01)
+  suspendedUntil   DateTime? // SUSPENDED only; null = until lifted
   friendCode       String     @unique // 0000-0000-0000
   tokenVersion     Int        @default(0) // bump = sign out everywhere
   acceptUnverified Boolean    @default(false) // ADR-008
@@ -134,7 +136,7 @@ model AuthEvent {
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   username  String
-  event     String // login | login_failed | logout | password_reset
+  event     String // login | login_failed | login_blocked | logout | password_reset_requested | password_reset
   ip        String?
   userAgent String?
   createdAt DateTime @default(now())

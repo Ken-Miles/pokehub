@@ -1,5 +1,6 @@
 import { getServerSession } from 'next-auth'
 import type { User } from '@prisma/client'
+import { accountBlock } from '@/lib/account-rules'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/http'
@@ -12,7 +13,7 @@ export async function currentUser(): Promise<User | null> {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return null
   const user = await prisma.user.findUnique({ where: { id: session.user.id } })
-  if (!user || user.status !== 'ACTIVE' || user.tokenVersion !== session.user.tokenVersion) return null
+  if (!user || accountBlock(user) || user.tokenVersion !== session.user.tokenVersion) return null
   return user
 }
 

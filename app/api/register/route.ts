@@ -1,22 +1,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { emailSchema, passwordSchema, usernameSchema } from '@/lib/account-rules'
 import { prisma } from '@/lib/db'
+import { sendVerificationEmail } from '@/lib/email-tokens'
 import { newFriendCode } from '@/lib/friend-code'
 import { HttpError, route } from '@/lib/http'
-import { sendMail } from '@/lib/mailer'
 import { hashPassword } from '@/lib/password'
 import { rateLimit } from '@/lib/rate-limit'
-import { newToken } from '@/lib/tokens'
 
-const body = z.object({
-  username: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9_]{3,20}$/, 'Username: 3–20 letters, numbers or _'),
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(10, 'Password: at least 10 characters').max(200),
-})
+const body = z.object({ username: usernameSchema, email: emailSchema, password: passwordSchema })
 
 /** FR-01: sign up. Unverified accounts can play and sync, not trade. */
 export const POST = route(async (req: Request) => {
@@ -33,28 +25,16 @@ export const POST = route(async (req: Request) => {
   }
 
   const passwordHash = await hashPassword(password)
-  const { token, tokenHash } = newToken()
   let user
   for (let attempt = 0; ; attempt++) {
     try {
-      user = await prisma.user.create({
-        data: {
-          username,
-          email,
-          passwordHash,
-          friendCode: newFriendCode(),
-          emailTokens: {
-            create: { kind: 'VERIFY_EMAIL', tokenHash, expiresAt: new Date(Date.now() + 24 * 3600 * 1000) },
-          },
-        },
-      })
+      user = await prisma.user.create({ data: { username, email, passwordHash, friendCode: newFriendCode() } })
       break
     } catch (e) {
       if (attempt >= 3) throw e // friend code collision is astronomically rare
     }
   }
 
-  const link = `${process.env.NEXTAUTH_URL}/api/auth/verify?token=${token}`
-  await sendMail(email, 'Verify your email', `Confirm your email to start trading: ${link}`)
+  await sendVerificationEmail(user.id, email)
   return NextResponse.json({ id: user.id, username: user.username }, { status: 201 })
 })

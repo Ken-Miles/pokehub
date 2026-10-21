@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
+import { VerifyEmailBanner } from '@/components/VerifyEmailBanner'
 import { api, formatPlayTime } from '@/lib/client/api'
 import { inspectRom, rememberRom } from '@/lib/client/rom'
 
@@ -69,11 +70,7 @@ function Slots() {
 
   return (
     <div className="space-y-8">
-      {params.get('welcome') && (
-        <p className="rounded-lg border border-line bg-card px-4 py-3 text-sm">
-          Welcome! Check your email to verify your account — you'll need that to trade.
-        </p>
-      )}
+      <VerifyEmailBanner result={params.get('verified')} welcome={!!params.get('welcome')} />
       <h1 className="text-2xl font-semibold">My games</h1>
       {error && <p className="text-sm text-danger">{error}</p>}
 
