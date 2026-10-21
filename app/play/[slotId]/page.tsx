@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { Player } from '@/components/Player'
 import { prisma } from '@/lib/db'
-import { identifyGame } from '@/lib/games'
+import { PLATFORMS, identifyGame } from '@/lib/games'
 import { currentUser } from '@/lib/session'
 
 export default async function PlayPage({ params }: { params: Promise<{ slotId: string }> }) {
@@ -9,7 +9,9 @@ export default async function PlayPage({ params }: { params: Promise<{ slotId: s
   if (!user) redirect('/login')
   const slot = await prisma.gameSlot.findFirst({ where: { id: (await params).slotId, userId: user.id, deletedAt: null } })
   if (!slot) notFound()
-  const game = identifyGame(slot.gameCode)!
+  const game = identifyGame(slot.platform, slot.gameCode)!
+  const core = PLATFORMS[slot.platform].emulatorCore
+  if (!game.playable || !core) notFound()
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">
@@ -17,6 +19,8 @@ export default async function PlayPage({ params }: { params: Promise<{ slotId: s
       </h1>
       <Player
         slotId={slot.id}
+        platform={slot.platform}
+        core={core}
         gameCode={slot.gameCode}
         gameName={game.name}
         emulatorData={process.env.NEXT_PUBLIC_EMULATORJS_DATA ?? '/emulator/data/'}

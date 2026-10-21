@@ -45,12 +45,19 @@ describe('EXCLUDED_DUMP', () => {
 })
 
 describe('data/rom-hashes.json', () => {
-  const table = (hashes as { hashes: Record<string, string[]> }).hashes
+  const all = (hashes as unknown as { hashes: Record<string, Record<string, string[]>> }).hashes
+  const table = all.GBA
   it('covers every US game and its revisions', () => {
     expect(table.BPEE).toContain('f3ae088181bf583e55daf962a92bb46f4f1d07b7') // Emerald
     expect(table.AXVE).toHaveLength(3) // Ruby 1.0, 1.1, 1.2
     expect(table.AXPE).toHaveLength(3) // Sapphire 1.0, 1.1, 1.2
     expect(table.BPRE).toHaveLength(2) // FireRed 1.0, 1.1 (Switch build excluded)
     expect(table.BPGE).toHaveLength(2) // LeafGreen 1.0, 1.1
+  })
+  it('lists DS games per platform, ready for Phase 4', () => {
+    for (const code of ['ADAE', 'APAE', 'CPUE', 'IPKE', 'IPGE', 'IRBO', 'IRAO', 'IREO', 'IRDO']) {
+      expect(all.NDS[code]?.length, code).toBeGreaterThan(0)
+    }
+    expect(all.NDS.AXVE).toBeUndefined() // a DS serial never lands on a GBA game
   })
 })

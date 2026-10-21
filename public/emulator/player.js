@@ -86,6 +86,18 @@
     if (e && typeof e.togglePlaying === 'function' && e.paused !== value) e.togglePlaying()
   }
 
+  // Hiding the Cheats button isn't enough: EmulatorJS restores cheats saved in
+  // localStorage and re-applies them when it builds its menu. Drop them and stub
+  // the hook. Only a deterrent — anyone with devtools can still poke the core,
+  // so the server-side legality and registry checks remain the real defence.
+  function disableCheats() {
+    var e = emu()
+    if (!e) return
+    e.cheats = []
+    e.cheatChanged = function () {}
+    if (gm() && typeof gm().resetCheat === 'function') gm().resetCheat()
+  }
+
   function boot(msg) {
     if (booted) return
     booted = true
@@ -97,8 +109,9 @@
     window.EJS_startOnLoaded = true
     window.EJS_disableDatabases = true // no second copy of saves or the game in IndexedDB
     // Cloud saves replace EmulatorJS's own save import/export; netplay is out of scope.
-    window.EJS_Buttons = { saveSavFiles: false, loadSavFiles: false, cacheManager: false, netplay: false }
+    window.EJS_Buttons = { saveSavFiles: false, loadSavFiles: false, cacheManager: false, netplay: false, cheat: false }
     window.EJS_onGameStart = async function () {
+      disableCheats()
       if (msg.save) {
         var save = new Uint8Array(msg.save)
         writeSave(save)

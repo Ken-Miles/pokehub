@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Link latency bench</title>
+    <style>
+      body { font: 14px/1.4 ui-monospace, Menlo, monospace; margin: 16px; background: #111; color: #ddd; }
+      button { font: inherit; padding: 6px 12px; }
+      pre { white-space: pre-wrap; }
+      a { color: #8bf; }
+    </style>
+  </head>
+  <body>
+    <p>
+      <b>Link latency bench</b> —
+      <a href="?mode=loopback">this device only</a> ·
+      pair two devices on one network: open <code>?mode=pair&amp;room=test&amp;role=1</code> on the second device first, then
+      <code>?mode=pair&amp;room=test&amp;role=0</code> here.
+      Keep both tabs in the foreground.
+    </p>
+    <button id="run">Run</button>
+    <pre id="out"></pre>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/bench.js"></script>
+  </body>
+</html>

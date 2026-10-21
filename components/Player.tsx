@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { forgetRom, inspectRom, rememberRom, rememberedRom } from '@/lib/client/rom'
+import type { Platform } from '@/lib/games'
 
 type Phase = 'need-rom' | 'loading' | 'playing' | 'stale' | 'locked' | 'error'
 type Sync = 'synced' | 'syncing' | 'offline' | 'flagged'
 
 interface Props {
   slotId: string
+  platform: Platform
+  core: string
   gameCode: string
   gameName: string
   emulatorData: string
@@ -19,7 +22,7 @@ interface Props {
  * (FR-08). Every upload names the version it was built on; a 409 means this tab
  * is stale (another tab, a trade or a restore) and the emulator stops (ADR-006).
  */
-export function Player({ slotId, gameCode, gameName, emulatorData }: Props) {
+export function Player({ slotId, platform, core, gameCode, gameName, emulatorData }: Props) {
   const frame = useRef<HTMLIFrameElement>(null)
   const rom = useRef<ArrayBuffer | null>(null)
   const save = useRef<ArrayBuffer | null>(null)
@@ -62,13 +65,13 @@ export function Player({ slotId, gameCode, gameName, emulatorData }: Props) {
     setError('')
     try {
       const inspected = await inspectRom(file)
-      if (inspected.code !== gameCode) {
+      if (inspected.platform !== platform || inspected.code !== gameCode) {
         throw new Error(`This slot is for ${gameName} (${gameCode}); that file is ${inspected.game.name} (${inspected.code}).`)
       }
       const check = await fetch('/api/games/verify', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code: inspected.code, sha1: inspected.sha1 }),
+        body: JSON.stringify({ platform: inspected.platform, code: inspected.code, sha1: inspected.sha1 }),
       })
       if (!check.ok) throw new Error((await check.json()).message)
       if (remember) await rememberRom(gameCode, inspected.bytes)
@@ -111,7 +114,7 @@ export function Player({ slotId, gameCode, gameName, emulatorData }: Props) {
       if (e.data?.type === 'ready' && rom.current) {
         const romCopy = rom.current.slice(0)
         const saveCopy = save.current ? save.current.slice(0) : null
-        send({ type: 'boot', rom: romCopy, save: saveCopy, core: 'gba', data: emulatorData }, saveCopy ? [romCopy, saveCopy] : [romCopy])
+        send({ type: 'boot', rom: romCopy, save: saveCopy, core, data: emulatorData }, saveCopy ? [romCopy, saveCopy] : [romCopy])
       } else if (e.data?.type === 'save') {
         upload(e.data.bytes)
       }

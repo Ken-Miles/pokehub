@@ -1,9 +1,10 @@
 'use client'
 
-import { identifyGame, readGbaHeader, type GameInfo } from '@/lib/games'
+import { PLATFORMS, identifyGame, readRomHeader, type GameInfo, type Platform } from '@/lib/games'
 
 export interface InspectedRom {
   bytes: ArrayBuffer
+  platform: Platform
   code: string
   sha1: string
   game: GameInfo
@@ -17,11 +18,15 @@ async function sha1Hex(bytes: ArrayBuffer): Promise<string> {
 /** FR-05: read the header and hash locally. Only `code` and `sha1` are ever sent. */
 export async function inspectRom(file: Blob): Promise<InspectedRom> {
   const bytes = await file.arrayBuffer()
-  const header = readGbaHeader(new Uint8Array(bytes))
-  if (!header) throw new Error("That file isn't a Game Boy Advance game.")
-  const game = identifyGame(header.code)
-  if (!game) throw new Error(`"${header.title}" (${header.code}) isn't supported yet.`)
-  return { bytes, code: header.code, sha1: await sha1Hex(bytes), game }
+  const header = readRomHeader(new Uint8Array(bytes))
+  if (!header) throw new Error("That file isn't a Game Boy Advance or DS game.")
+  const game = identifyGame(header.platform, header.code)
+  if (!game) throw new Error(`"${header.title}" (${header.code}) isn't a supported Pokémon game.`)
+  if (!game.playable) {
+    const info = PLATFORMS[header.platform]
+    throw new Error(`Pokémon ${game.name} is a ${info.name} game. Those are planned for ${info.phase}.`)
+  }
+  return { bytes, platform: header.platform, code: header.code, sha1: await sha1Hex(bytes), game }
 }
 
 // ---- optional "remember this game on this device" (FR-04). IndexedDB, this browser only.

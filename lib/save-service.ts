@@ -1,5 +1,6 @@
 import { request } from 'http'
 import { env } from '@/lib/env'
+import type { SaveFamily } from '@/lib/games'
 import type { SeenPokemon } from '@/lib/registry'
 
 /**
@@ -18,7 +19,9 @@ export interface ParsedPokemon extends SeenPokemon {
 export interface ParsedSave {
   ok: true
   generation: number
-  family: 'RS' | 'E' | 'FRLG'
+  family: SaveFamily
+  /** Game version the save was made in, e.g. OR — how 3DS slots identify their game. */
+  version: string
   trainer: { name: string; tid: number; sid: number }
   playSeconds: number
   pokemon: ParsedPokemon[]

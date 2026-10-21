@@ -11,7 +11,7 @@ export const POST = route(async (req: Request, { params }: Ctx) => {
   const user = await requireUser()
   const slot = await loadOwnSlot(user.id, (await params).slotId)
   if (slot.origin !== 'IMPORTED') throw new HttpError(400, 'not_import_slot', 'This slot was created for a new game.')
-  const bytes = await readSaveBody(req)
+  const bytes = await readSaveBody(req, slot)
   const { version, conflicts } = await ingestSave({ slot, bytes, parentVersionId: null, source: 'IMPORT', actorId: user.id })
   return NextResponse.json({ versionId: version.id, seq: version.seq, flagged: conflicts.length }, { status: 201 })
 })

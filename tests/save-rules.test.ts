@@ -2,6 +2,7 @@ import { checkImport, checkRestore, checkUpload, type SlotState } from '@/lib/sa
 
 const slot = (over: Partial<SlotState> = {}): SlotState => ({
   id: 'slot1',
+  platform: 'GBA',
   deletedAt: null,
   lockedByTradeId: null,
   currentVersionId: 'v3',
@@ -28,6 +29,8 @@ describe('checkUpload (ADR-006)', () => {
   })
   it('rejects anything that is not a save-sized file (NFR-01)', () => {
     expect(checkUpload(slot(), 'v3', 16 * 1024 * 1024)?.code).toBe('bad_size')
+    expect(checkUpload(slot(), 'v3', 524_288)?.message).toMatch(/Game Boy Advance/)
+    expect(checkUpload(slot({ platform: 'NDS' }), 'v3', 524_288)).toBeNull()
   })
   it('rejects deleted slots', () => {
     expect(checkUpload(slot({ deletedAt: new Date() }), 'v3', OK_SIZE)?.status).toBe(404)

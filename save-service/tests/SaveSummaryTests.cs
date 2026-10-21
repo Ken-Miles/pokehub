@@ -90,3 +90,73 @@ public class SaveSummaryTests
         Assert.Null(SaveLoader.Load(new byte[SaveLoader.Gen3Size]));
     }
 }
+
+/// <summary>
+/// Gen 4–7 are catalogued but not playable yet (ADR-013). These pin down that the
+/// service already knows their formats, so switching a platform on is data only.
+/// Blank saves from PKHeX stand in for real ones: Gen 5 round-trips fully; blank
+/// Gen 4 saves can't be written and blank Gen 6–7 saves lack the markers PKHeX
+/// detects, so those need real (anonymised) fixtures before their phase starts.
+/// </summary>
+public class LaterGenerationTests
+{
+    [Theory]
+    [InlineData(GameVersion.D, "DP")]
+    [InlineData(GameVersion.Pt, "Pt")]
+    [InlineData(GameVersion.HG, "HGSS")]
+    [InlineData(GameVersion.B, "BW")]
+    [InlineData(GameVersion.B2, "B2W2")]
+    [InlineData(GameVersion.X, "XY")]
+    [InlineData(GameVersion.OR, "ORAS")]
+    [InlineData(GameVersion.SN, "SM")]
+    [InlineData(GameVersion.US, "USUM")]
+    public void Knows_every_gen_4_to_7_format(GameVersion version, string family)
+    {
+        Assert.Equal(family, SaveLoader.Family(BlankSaveFile.Get(version, "ASH")));
+    }
+
+    [Theory]
+    [InlineData(GameVersion.GP)] // Let's Go: Switch, out of scope
+    [InlineData(GameVersion.SW)] // Sword: Switch, out of scope
+    public void Refuses_switch_formats(GameVersion version)
+    {
+        Assert.Null(SaveLoader.Family(BlankSaveFile.Get(version, "ASH")));
+    }
+
+    [Theory]
+    [InlineData(GameVersion.B)]
+    [InlineData(GameVersion.B2)]
+    [InlineData(GameVersion.X)]
+    [InlineData(GameVersion.OR)]
+    [InlineData(GameVersion.SN)]
+    [InlineData(GameVersion.US)]
+    public void Accepts_each_formats_real_size(GameVersion version)
+    {
+        var bytes = BlankSaveFile.Get(version, "ASH").Write(BinaryExportSetting.None).ToArray();
+        Assert.True(SaveLoader.IsAcceptedSize(bytes.Length), $"{version}: 0x{bytes.Length:X}");
+    }
+
+    [Fact]
+    public void Parses_a_gen_5_save_end_to_end()
+    {
+        var blank = (SAV5)BlankSaveFile.Get(GameVersion.B2, "ASH");
+        var mon = new PK5 { Species = (ushort)Species.Snivy, PID = 0xCAFE1234, TID16 = 111, SID16 = 222, OriginalTrainerName = "ASH", CurrentLevel = 5 };
+        blank.SetBoxSlotAtIndex(mon, 0, 0);
+
+        var sav = SaveLoader.Load(blank.Write(BinaryExportSetting.None).ToArray());
+        Assert.NotNull(sav);
+        var summary = SaveSummary.From(sav!);
+        Assert.Equal(5, summary.Generation);
+        Assert.Equal("B2W2", summary.Family);
+        Assert.Equal("B2", summary.Version);
+        Assert.Equal((int)Species.Snivy, Assert.Single(summary.Pokemon).Species);
+    }
+
+    [Fact]
+    public void Fingerprint_is_the_same_across_generations()
+    {
+        var g3 = new PK3 { Species = (ushort)Species.Pikachu, PID = 0x1234ABCD, TID16 = 12345, SID16 = 54321, OriginalTrainerName = "ASH" };
+        var g4 = new PK4 { Species = (ushort)Species.Pikachu, PID = 0x1234ABCD, TID16 = 12345, SID16 = 54321, OriginalTrainerName = "ASH" };
+        Assert.Equal(SaveSummary.Fingerprint(g3), SaveSummary.Fingerprint(g4));
+    }
+}

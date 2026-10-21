@@ -12,7 +12,7 @@ interface Slot {
   origin: 'NEW' | 'IMPORTED'
   trainerName: string | null
   trainerId: number | null
-  game: { name: string; region: string } | null
+  game: { name: string; region: string | null } | null
   currentVersion: { playSeconds: number; createdAt: string } | null
 }
 
@@ -52,7 +52,7 @@ function Slots() {
       const rom = await inspectRom(romFile)
       const { slot } = await api<{ slot: { id: string } }>('/api/slots', {
         method: 'POST',
-        body: JSON.stringify({ code: rom.code, sha1: rom.sha1, origin }),
+        body: JSON.stringify({ platform: rom.platform, code: rom.code, sha1: rom.sha1, origin }),
       })
       await rememberRom(rom.code, rom.bytes)
       if (origin === 'IMPORTED' && saveFile) {

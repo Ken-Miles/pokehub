@@ -1,0 +1,10 @@
+{
+  "note": "Copied from console output: this run (lockstep 10,100,500) crashed at 500 sessions before saving. The 500-session step overloaded the server until it stopped accepting connections.",
+  "url": "http://localhost:3100",
+  "cpu": "Apple M4 Max",
+  "at": "2026-10-21T05:19:30Z",
+  "runs": [
+    {"pattern":"lockstep","sessions":10,"seconds":15,"fpsPerSession":{"mean":59.7,"min":59.7},"latencyMs":{"what":"one way","p50":0.7,"p95":1.55,"p99":2.4},"server":{"cpuPctMean":16.6,"cpuPctMax":19.1,"relayedMsgsPerSecMean":1170}},
+    {"pattern":"lockstep","sessions":100,"seconds":15,"fpsPerSession":{"mean":59.7,"min":59.7},"latencyMs":{"what":"one way","p50":0.45,"p95":1.2,"p99":1.6},"server":{"cpuPctMean":33.2,"cpuPctMax":35.8,"relayedMsgsPerSecMean":11176}}
+  ]
+}

@@ -48,7 +48,7 @@ export async function ingestSave(opts: {
     }
     throw e
   }
-  if (!saveFamilyMatchesGame(parsed.family, slot.gameCode)) {
+  if (!saveFamilyMatchesGame(parsed.family, slot.platform, slot.gameCode)) {
     throw new HttpError(422, 'wrong_game', "That save belongs to a different game than this slot.")
   }
 

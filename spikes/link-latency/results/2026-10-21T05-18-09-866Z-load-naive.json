@@ -1,0 +1,67 @@
+{
+  "url": "http://localhost:3100",
+  "cpu": "Apple M4 Max",
+  "at": "2026-10-21T05:18:09.868Z",
+  "runs": [
+    {
+      "pattern": "naive",
+      "sessions": 10,
+      "seconds": 15,
+      "fpsPerSession": {
+        "mean": 59.7,
+        "min": 59.7
+      },
+      "latencyMs": {
+        "what": "round trip",
+        "p50": 0.26,
+        "p95": 0.4,
+        "p99": 0.71
+      },
+      "server": {
+        "cpuPctMean": 35,
+        "cpuPctMax": 37.2,
+        "relayedMsgsPerSecMean": 10459
+      }
+    },
+    {
+      "pattern": "naive",
+      "sessions": 50,
+      "seconds": 15,
+      "fpsPerSession": {
+        "mean": 43.7,
+        "min": 43.7
+      },
+      "latencyMs": {
+        "what": "round trip",
+        "p50": 2.5,
+        "p95": 2.83,
+        "p99": 2.94
+      },
+      "server": {
+        "cpuPctMean": 93.8,
+        "cpuPctMax": 102,
+        "relayedMsgsPerSecMean": 36748
+      }
+    },
+    {
+      "pattern": "naive",
+      "sessions": 100,
+      "seconds": 15,
+      "fpsPerSession": {
+        "mean": 21.3,
+        "min": 21.3
+      },
+      "latencyMs": {
+        "what": "round trip",
+        "p50": 5.15,
+        "p95": 6.01,
+        "p99": 6.59
+      },
+      "server": {
+        "cpuPctMean": 97.6,
+        "cpuPctMax": 101.9,
+        "relayedMsgsPerSecMean": 37434
+      }
+    }
+  ]
+}

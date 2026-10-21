@@ -1,68 +1,199 @@
 /**
- * Supported games and GBA header parsing (FR-05). Runs in the browser and on the
- * server: the browser reads the header + hashes the file, the server only ever
- * sees the 4-letter code and the SHA-1.
+ * Game catalog (FR-05, ADR-013). Every supported game for Gen 3–7 lives here as
+ * data; a platform is switched on by its `availability`, not by new code paths.
+ * Runs in the browser and on the server: the browser reads the header + hashes
+ * the file, the server only ever sees the platform, the 4-letter code and the SHA-1.
  */
 
-export type SaveFamily = 'RS' | 'E' | 'FRLG'
+export type Platform = 'GBA' | 'NDS' | 'N3DS'
+export type Generation = 3 | 4 | 5 | 6 | 7
 
-export interface GameInfo {
-  code: string // full 4-letter code, e.g. BPEE
+/** Save format as the save service (PKHeX) reports it. Games sharing a format share a family. */
+export type SaveFamily = 'RS' | 'E' | 'FRLG' | 'DP' | 'Pt' | 'HGSS' | 'BW' | 'B2W2' | 'XY' | 'ORAS' | 'SM' | 'USUM'
+
+export interface PlatformInfo {
   name: string
-  generation: 3
-  family: SaveFamily
-  region: string
-  language: string // last letter of the code
+  /** playable = on the site now; planned = in the catalog, refused with "coming later". */
+  availability: 'playable' | 'planned'
+  /** browser = our emulator in the iframe; companion = desktop emulator + companion app (Phase 6). */
+  runsIn: 'browser' | 'companion'
+  /** rom-header = game picked from the player's game file; save = read from the save itself. */
+  identifiedBy: 'rom-header' | 'save'
+  romExtension: string | null
+  /** Core the emulator iframe boots; null when the game doesn't run on the site. */
+  emulatorCore: 'gba' | 'nds' | null
+  /** Exact sizes accepted for upload; the largest is enforced before buffering (NFR-01). */
+  saveSizes: readonly number[]
+  phase: string
 }
 
-// First three letters of the header code → game. The fourth letter is the region.
-const GEN3: Record<string, { name: string; family: SaveFamily }> = {
-  AXV: { name: 'Ruby', family: 'RS' },
-  AXP: { name: 'Sapphire', family: 'RS' },
-  BPE: { name: 'Emerald', family: 'E' },
-  BPR: { name: 'FireRed', family: 'FRLG' },
-  BPG: { name: 'LeafGreen', family: 'FRLG' },
+export const PLATFORMS: Record<Platform, PlatformInfo> = {
+  GBA: {
+    name: 'Game Boy Advance',
+    availability: 'playable',
+    runsIn: 'browser',
+    identifiedBy: 'rom-header',
+    romExtension: '.gba',
+    emulatorCore: 'gba',
+    saveSizes: [0x20000, 0x20000 + 16], // 128 KB flash; some emulators append a 16-byte RTC footer
+    phase: 'Phase 1',
+  },
+  NDS: {
+    name: 'Nintendo DS',
+    availability: 'planned',
+    runsIn: 'browser',
+    identifiedBy: 'rom-header',
+    romExtension: '.nds',
+    emulatorCore: 'nds',
+    saveSizes: [0x80000], // 512 KB raw (melonDS). DeSmuME .dsv footers: not yet accepted
+    phase: 'Phase 4',
+  },
+  N3DS: {
+    name: 'Nintendo 3DS',
+    availability: 'planned',
+    runsIn: 'companion',
+    identifiedBy: 'save',
+    romExtension: null,
+    emulatorCore: null,
+    saveSizes: [0x65600, 0x76000, 0x6be00, 0x6cc00], // X/Y, OR/AS, S/M, US/UM
+    phase: 'Phase 6',
+  },
+}
+
+interface CatalogEntry {
+  name: string
+  generation: Generation
+  family: SaveFamily
+}
+
+/**
+ * GBA and DS games by the first three letters of the header code (the fourth is
+ * the region). Keyed per platform: DS codes reuse GBA ones (AXVE is Ruby on GBA
+ * and Disney Friends on DS). 3DS games are keyed by the version the save reports.
+ */
+const CATALOG: Record<Platform, Record<string, CatalogEntry>> = {
+  GBA: {
+    AXV: { name: 'Ruby', generation: 3, family: 'RS' },
+    AXP: { name: 'Sapphire', generation: 3, family: 'RS' },
+    BPE: { name: 'Emerald', generation: 3, family: 'E' },
+    BPR: { name: 'FireRed', generation: 3, family: 'FRLG' },
+    BPG: { name: 'LeafGreen', generation: 3, family: 'FRLG' },
+  },
+  NDS: {
+    ADA: { name: 'Diamond', generation: 4, family: 'DP' },
+    APA: { name: 'Pearl', generation: 4, family: 'DP' },
+    CPU: { name: 'Platinum', generation: 4, family: 'Pt' },
+    IPK: { name: 'HeartGold', generation: 4, family: 'HGSS' },
+    IPG: { name: 'SoulSilver', generation: 4, family: 'HGSS' },
+    IRB: { name: 'Black', generation: 5, family: 'BW' },
+    IRA: { name: 'White', generation: 5, family: 'BW' },
+    IRE: { name: 'Black 2', generation: 5, family: 'B2W2' },
+    IRD: { name: 'White 2', generation: 5, family: 'B2W2' },
+  },
+  N3DS: {
+    X: { name: 'X', generation: 6, family: 'XY' },
+    Y: { name: 'Y', generation: 6, family: 'XY' },
+    OR: { name: 'Omega Ruby', generation: 6, family: 'ORAS' },
+    AS: { name: 'Alpha Sapphire', generation: 6, family: 'ORAS' },
+    SN: { name: 'Sun', generation: 7, family: 'SM' },
+    MN: { name: 'Moon', generation: 7, family: 'SM' },
+    US: { name: 'Ultra Sun', generation: 7, family: 'USUM' },
+    UM: { name: 'Ultra Moon', generation: 7, family: 'USUM' },
+  },
 }
 
 export const REGIONS: Record<string, string> = {
   E: 'USA',
   P: 'Europe',
+  O: 'USA and Europe', // Gen 5 shipped one international build
   J: 'Japan',
+  K: 'Korea',
   D: 'Germany',
   F: 'France',
   I: 'Italy',
   S: 'Spain',
 }
 
-const GBA_HEADER_SIZE = 0xc0
-const GBA_FIXED_BYTE_OFFSET = 0xb2 // always 0x96 in a real GBA header
-const GBA_FIXED_BYTE = 0x96
+export interface GameInfo extends CatalogEntry {
+  platform: Platform
+  code: string // GBA/DS: full header code (BPEE). 3DS: version code (OR)
+  region: string | null // null for 3DS: the save carries the language
+  language: string | null
+  playable: boolean
+}
 
-export interface GbaHeader {
+export const MAX_SAVE_BYTES = Math.max(...Object.values(PLATFORMS).flatMap((p) => p.saveSizes))
+
+/** Map a platform + code to a catalog game (playable or planned), or null if unknown. */
+export function identifyGame(platform: Platform, code: string): GameInfo | null {
+  const info = PLATFORMS[platform]
+  if (!info) return null
+  const playable = info.availability === 'playable'
+  if (info.identifiedBy === 'save') {
+    const entry = CATALOG[platform][code]
+    return entry ? { ...entry, platform, code, region: null, language: null, playable } : null
+  }
+  const entry = CATALOG[platform][code.slice(0, 3)]
+  const language = code.slice(3)
+  if (!entry || code.length !== 4 || !REGIONS[language]) return null
+  return { ...entry, platform, code, region: REGIONS[language], language, playable }
+}
+
+/** Every catalog game on a platform, for listings ("coming later" and supported). */
+export function gamesOn(platform: Platform): (CatalogEntry & { prefix: string })[] {
+  return Object.entries(CATALOG[platform]).map(([prefix, e]) => ({ prefix, ...e }))
+}
+
+/** Does the save family the save service reports match the slot's game? */
+export function saveFamilyMatchesGame(family: string, platform: Platform, gameCode: string): boolean {
+  return identifyGame(platform, gameCode)?.family === family
+}
+
+export function isAcceptedSaveSize(platform: Platform, size: number): boolean {
+  return PLATFORMS[platform]?.saveSizes.includes(size) ?? false
+}
+
+export function maxSaveBytes(platform: Platform): number {
+  return Math.max(...PLATFORMS[platform].saveSizes)
+}
+
+// ---------------------------------------------------------------- ROM headers
+
+export interface RomHeader {
+  platform: Platform
   title: string
   code: string
 }
 
+const ascii = (bytes: Uint8Array, from: number, to: number) =>
+  String.fromCharCode(...bytes.subarray(from, to)).replace(/\0+$/, '')
+
+const GBA_HEADER_SIZE = 0xc0
+const GBA_FIXED_BYTE_OFFSET = 0xb2 // always 0x96 in a real GBA header
+const GBA_FIXED_BYTE = 0x96
+
 /** Read title + game code from a GBA ROM header, or null if it isn't one. */
-export function readGbaHeader(bytes: Uint8Array): GbaHeader | null {
+export function readGbaHeader(bytes: Uint8Array): RomHeader | null {
   if (bytes.length < GBA_HEADER_SIZE) return null
   if (bytes[GBA_FIXED_BYTE_OFFSET] !== GBA_FIXED_BYTE) return null
-  const ascii = (from: number, to: number) =>
-    String.fromCharCode(...bytes.subarray(from, to)).replace(/\0+$/, '')
-  const code = ascii(0xac, 0xb0)
+  const code = ascii(bytes, 0xac, 0xb0)
   if (!/^[A-Z0-9]{4}$/.test(code)) return null
-  return { title: ascii(0xa0, 0xac), code }
+  return { platform: 'GBA', title: ascii(bytes, 0xa0, 0xac), code }
 }
 
-/** Map a header code to a supported game, or null if unsupported. */
-export function identifyGame(code: string): GameInfo | null {
-  const game = GEN3[code.slice(0, 3)]
-  const language = code.slice(3)
-  if (!game || !REGIONS[language]) return null
-  return { code, ...game, generation: 3, region: REGIONS[language], language }
+const NDS_HEADER_SIZE = 0x200
+const NDS_LOGO_CRC_OFFSET = 0x15c // CRC of the Nintendo logo: always 0xCF56
+
+/** Read title + game code from a DS ROM header, or null if it isn't one. */
+export function readNdsHeader(bytes: Uint8Array): RomHeader | null {
+  if (bytes.length < NDS_HEADER_SIZE) return null
+  if (bytes[NDS_LOGO_CRC_OFFSET] !== 0x56 || bytes[NDS_LOGO_CRC_OFFSET + 1] !== 0xcf) return null
+  const code = ascii(bytes, 0x0c, 0x10)
+  if (!/^[A-Z0-9]{4}$/.test(code)) return null
+  return { platform: 'NDS', title: ascii(bytes, 0x00, 0x0c), code }
 }
 
-/** Does the save family the save service reports match the slot's game? */
-export function saveFamilyMatchesGame(family: string, gameCode: string): boolean {
-  return identifyGame(gameCode)?.family === family
+/** Whichever header matches. GBA first: its check sits outside the DS header. */
+export function readRomHeader(bytes: Uint8Array): RomHeader | null {
+  return readGbaHeader(bytes) ?? readNdsHeader(bytes)
 }

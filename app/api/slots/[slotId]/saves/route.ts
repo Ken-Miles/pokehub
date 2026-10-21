@@ -20,7 +20,7 @@ export const POST = route(async (req: Request, { params }: Ctx) => {
   if (!parentHeader) throw new HttpError(400, 'missing_parent', 'x-parent-version header is required.')
   const parentVersionId = parentHeader === 'none' ? null : parentHeader
 
-  const bytes = await readSaveBody(req)
+  const bytes = await readSaveBody(req, slot)
   const { version, created, conflicts } = await ingestSave({
     slot,
     bytes,

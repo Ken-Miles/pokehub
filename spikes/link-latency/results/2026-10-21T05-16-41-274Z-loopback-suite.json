@@ -1,0 +1,1175 @@
+{
+  "label": "loopback-suite",
+  "mode": "loopback",
+  "config": {
+    "label": "loopback-suite",
+    "seconds": 8,
+    "pings": 500,
+    "emuMs": 4,
+    "lockstepEmuMs": 0,
+    "cores": 2,
+    "delays": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "profiles": [
+      "none",
+      "wifi-lan-sim",
+      "region-sim"
+    ],
+    "transports": [
+      "webrtc",
+      "relay"
+    ]
+  },
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+  "at": "2026-10-21T05:16:41.269Z",
+  "results": [
+    {
+      "test": "ping",
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 10
+      },
+      "rttMs": {
+        "n": 500,
+        "mean": 0.97,
+        "p50": 0.8,
+        "p95": 2.1,
+        "p99": 4.2,
+        "max": 4.9
+      }
+    },
+    {
+      "test": "relay-naive",
+      "transfersPerFrame": 9,
+      "emuMs": 4,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 10
+      },
+      "fps": 59.73,
+      "speedPct": 100,
+      "frameMs": {
+        "n": 478,
+        "mean": 16.74,
+        "p50": 16.7,
+        "p95": 16.8,
+        "p99": 16.8,
+        "max": 17.5
+      }
+    },
+    {
+      "test": "relay-frame",
+      "transfersPerFrame": 1,
+      "emuMs": 4,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 10
+      },
+      "fps": 59.72,
+      "speedPct": 99.98,
+      "frameMs": {
+        "n": 478,
+        "mean": 16.74,
+        "p50": 17.1,
+        "p95": 17.4,
+        "p99": 17.6,
+        "max": 18.5
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 10
+      },
+      "local": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 10
+      },
+      "local": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 10
+      },
+      "local": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 10
+      },
+      "local": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "ping",
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "relay",
+      "route": null,
+      "rttMs": {
+        "n": 500,
+        "mean": 0.94,
+        "p50": 0.7,
+        "p95": 2.3,
+        "p99": 3.3,
+        "max": 3.8
+      }
+    },
+    {
+      "test": "relay-naive",
+      "transfersPerFrame": 9,
+      "emuMs": 4,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "relay",
+      "route": null,
+      "fps": 59.73,
+      "speedPct": 100,
+      "frameMs": {
+        "n": 478,
+        "mean": 16.74,
+        "p50": 16.7,
+        "p95": 16.8,
+        "p99": 16.8,
+        "max": 17.2
+      }
+    },
+    {
+      "test": "relay-frame",
+      "transfersPerFrame": 1,
+      "emuMs": 4,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "relay",
+      "route": null,
+      "fps": 59.73,
+      "speedPct": 100,
+      "frameMs": {
+        "n": 478,
+        "mean": 16.74,
+        "p50": 17.2,
+        "p95": 17.4,
+        "p99": 17.6,
+        "max": 18.3
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.72,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "none",
+      "profileNote": "real transport only",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "ping",
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "rttMs": {
+        "n": 500,
+        "mean": 8.85,
+        "p50": 8.7,
+        "p95": 11.7,
+        "p99": 13,
+        "max": 13.3
+      }
+    },
+    {
+      "test": "relay-naive",
+      "transfersPerFrame": 9,
+      "emuMs": 4,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "fps": 12.62,
+      "speedPct": 21.13,
+      "frameMs": {
+        "n": 101,
+        "mean": 79.25,
+        "p50": 79.3,
+        "p95": 86.9,
+        "p99": 89.5,
+        "max": 93.4
+      }
+    },
+    {
+      "test": "relay-frame",
+      "transfersPerFrame": 1,
+      "emuMs": 4,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "fps": 59.73,
+      "speedPct": 100,
+      "frameMs": {
+        "n": 478,
+        "mean": 16.74,
+        "p50": 16.7,
+        "p95": 16.8,
+        "p99": 16.8,
+        "max": 16.8
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "local": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.72,
+        "speedPct": 99.98,
+        "stalledFramesPct": 0.21,
+        "stallMs": {
+          "n": 1,
+          "mean": 3.1,
+          "p50": 3.1,
+          "p95": 3.1,
+          "p99": 3.1,
+          "max": 3.1
+        }
+      },
+      "remote": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.71,
+        "speedPct": 99.97,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "local": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "local": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "local": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "ping",
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "rttMs": {
+        "n": 500,
+        "mean": 8.83,
+        "p50": 8.7,
+        "p95": 11.6,
+        "p99": 13,
+        "max": 14.8
+      }
+    },
+    {
+      "test": "relay-naive",
+      "transfersPerFrame": 9,
+      "emuMs": 4,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "fps": 12.4,
+      "speedPct": 20.76,
+      "frameMs": {
+        "n": 100,
+        "mean": 80.66,
+        "p50": 80.6,
+        "p95": 89.8,
+        "p99": 94.1,
+        "max": 94.1
+      }
+    },
+    {
+      "test": "relay-frame",
+      "transfersPerFrame": 1,
+      "emuMs": 4,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "fps": 59.73,
+      "speedPct": 100,
+      "frameMs": {
+        "n": 478,
+        "mean": 16.74,
+        "p50": 16.7,
+        "p95": 16.8,
+        "p99": 16.8,
+        "max": 17
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.72,
+        "speedPct": 99.98,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "wifi-lan-sim",
+      "profileNote": "simulated busy home Wi-Fi: +4-10 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.71,
+        "speedPct": 99.98,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "ping",
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "rttMs": {
+        "n": 500,
+        "mean": 30.97,
+        "p50": 30.6,
+        "p95": 37.4,
+        "p99": 40.5,
+        "max": 43
+      }
+    },
+    {
+      "test": "relay-naive",
+      "transfersPerFrame": 9,
+      "emuMs": 4,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "fps": 3.31,
+      "speedPct": 5.54,
+      "frameMs": {
+        "n": 27,
+        "mean": 302.34,
+        "p50": 303.5,
+        "p95": 318.9,
+        "p99": 322.2,
+        "max": 322.2
+      }
+    },
+    {
+      "test": "relay-frame",
+      "transfersPerFrame": 1,
+      "emuMs": 4,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "fps": 27.17,
+      "speedPct": 45.49,
+      "frameMs": {
+        "n": 218,
+        "mean": 36.8,
+        "p50": 37.1,
+        "p95": 43,
+        "p99": 43.9,
+        "max": 45.5
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "local": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 58.92,
+        "speedPct": 98.64,
+        "stalledFramesPct": 41.42,
+        "stallMs": {
+          "n": 198,
+          "mean": 11.21,
+          "p50": 10.7,
+          "p95": 12.9,
+          "p99": 31.3,
+          "max": 73.4
+        }
+      },
+      "remote": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.1,
+        "speedPct": 98.95,
+        "stalledFramesPct": 55.02,
+        "stallMs": {
+          "n": 263,
+          "mean": 8.08,
+          "p50": 7.6,
+          "p95": 10.8,
+          "p99": 23.8,
+          "max": 49.7
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "local": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.72,
+        "speedPct": 100,
+        "stalledFramesPct": 0.21,
+        "stallMs": {
+          "n": 1,
+          "mean": 2.1,
+          "p50": 2.1,
+          "p95": 2.1,
+          "p99": 2.1,
+          "max": 2.1
+        }
+      },
+      "remote": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "local": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "webrtc",
+      "route": {
+        "local": "host",
+        "remote": "host",
+        "protocol": "udp",
+        "rttMs": 1
+      },
+      "local": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.72,
+        "speedPct": 99.98,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "ping",
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "rttMs": {
+        "n": 500,
+        "mean": 31.15,
+        "p50": 31.1,
+        "p95": 36.4,
+        "p99": 38.3,
+        "max": 40.3
+      }
+    },
+    {
+      "test": "relay-naive",
+      "transfersPerFrame": 9,
+      "emuMs": 4,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "fps": 3.51,
+      "speedPct": 5.88,
+      "frameMs": {
+        "n": 29,
+        "mean": 284.68,
+        "p50": 287.9,
+        "p95": 296.9,
+        "p99": 299.1,
+        "max": 299.1
+      }
+    },
+    {
+      "test": "relay-frame",
+      "transfersPerFrame": 1,
+      "emuMs": 4,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "fps": 29.47,
+      "speedPct": 49.35,
+      "frameMs": {
+        "n": 236,
+        "mean": 33.93,
+        "p50": 33.8,
+        "p95": 37.9,
+        "p99": 39.2,
+        "max": 39.5
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.72,
+        "speedPct": 99.98,
+        "stalledFramesPct": 99.79,
+        "stallMs": {
+          "n": 477,
+          "mean": 9.67,
+          "p50": 9.5,
+          "p95": 12.6,
+          "p99": 13.2,
+          "max": 17.2
+        }
+      },
+      "remote": {
+        "D": 1,
+        "inputDelayMs": 16.74,
+        "fps": 59.72,
+        "speedPct": 99.99,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.71,
+        "speedPct": 99.97,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 2,
+        "inputDelayMs": 33.49,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.71,
+        "speedPct": 99.98,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 3,
+        "inputDelayMs": 50.23,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    },
+    {
+      "test": "lockstep",
+      "cores": 2,
+      "emuMs": 0,
+      "profile": "region-sim",
+      "profileNote": "simulated same-region internet: +20-30 ms RTT",
+      "transport": "relay",
+      "route": null,
+      "local": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      },
+      "remote": {
+        "D": 4,
+        "inputDelayMs": 66.97,
+        "fps": 59.73,
+        "speedPct": 100,
+        "stalledFramesPct": 0,
+        "stallMs": {
+          "n": 0
+        }
+      }
+    }
+  ]
+}

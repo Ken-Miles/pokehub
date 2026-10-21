@@ -33,6 +33,14 @@ enum FriendshipStatus {
   ACCEPTED
 }
 
+/// Where a game runs (lib/games.ts PLATFORMS). DS codes reuse GBA ones, so a
+/// slot's game is platform + gameCode, never the code alone.
+enum Platform {
+  GBA
+  NDS
+  N3DS
+}
+
 enum SlotOrigin {
   NEW
   IMPORTED
@@ -168,8 +176,9 @@ model GameSlot {
   userId     String
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   slotNumber Int // 1..3, unique among live slots (partial index in migration)
-  gameCode   String // header code, e.g. BPEE
-  language   String // last header letter: E, P, J, D, F, I, S
+  platform   Platform   @default(GBA)
+  gameCode   String // GBA/DS: header code, e.g. BPEE. 3DS: version from the save, e.g. OR
+  language   String // GBA/DS: last header letter (E, P, O, J, K, D, F, I, S). 3DS: from the save
   origin     SlotOrigin
 
   trainerName String?

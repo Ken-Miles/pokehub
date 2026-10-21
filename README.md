@@ -23,6 +23,7 @@ Verification and password-reset emails are printed to the server log in dev.
 
 ```bash
 npm test                                                        # TypeScript unit tests
+npm run test:integration                                        # save path against real services (own DB: pokehub_test)
 npm run typecheck
 docker build --target test save-service                         # .NET save service tests
 ```
@@ -39,4 +40,7 @@ docker build --target test save-service                         # .NET save serv
 | `worker/main.ts` | BullMQ worker: trades (phase 2) + sweepers |
 | `prisma/` | Schema + migrations (includes hand-written triggers) |
 | `save-service/` | .NET 10 + PKHeX.Core save parser |
-| `data/rom-hashes.json` | Allowlist of official game dumps (to fill from No-Intro) |
+| `data/rom-hashes.json` | Official game dumps per platform, from No-Intro (`npm run roms:import`) |
+| `lib/games.ts` | Game catalog, Gen 3–7: which platforms are playable vs planned |
+| `tests/fixtures/` | Synthetic saves made by PKHeX (`generate.sh`), no player data |
+| `spikes/link-latency/` | Link-play latency bench (not part of the app) |

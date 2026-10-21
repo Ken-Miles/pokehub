@@ -1,15 +1,10 @@
+import { PLATFORMS, isAcceptedSaveSize, type Platform } from '@/lib/games'
+
 /**
  * Pure rules for accepting uploads and restores. Kept free of I/O so the
  * anti-duplication invariants are unit-tested (tests/save-rules.test.ts).
  */
 
-/** Gen 3 flash is 128 KB; some emulators append a 16-byte RTC footer (NFR-01). */
-export const GBA_SAVE_SIZES = [131_072, 131_088] as const
-export const MAX_SAVE_BYTES = 131_088
-
-export function isAcceptedSaveSize(size: number): boolean {
-  return (GBA_SAVE_SIZES as readonly number[]).includes(size)
-}
 
 export interface Rejection {
   status: 400 | 404 | 409 | 413 | 423
@@ -19,6 +14,7 @@ export interface Rejection {
 
 export interface SlotState {
   id: string
+  platform: Platform
   deletedAt: Date | null
   lockedByTradeId: string | null
   currentVersionId: string | null
@@ -30,8 +26,7 @@ export interface SlotState {
  */
 export function checkUpload(slot: SlotState, parentVersionId: string | null, size: number): Rejection | null {
   if (slot.deletedAt) return { status: 404, code: 'slot_deleted', message: 'This slot was deleted.' }
-  if (!isAcceptedSaveSize(size))
-    return { status: 413, code: 'bad_size', message: 'That is not a Game Boy Advance save file.' }
+  if (!isAcceptedSaveSize(slot.platform, size)) return badSize(slot.platform)
   if (slot.lockedByTradeId)
     return { status: 423, code: 'slot_locked', message: 'This save is locked while a trade finishes.' }
   if ((slot.currentVersionId ?? null) !== (parentVersionId ?? null))
@@ -48,9 +43,12 @@ export function checkImport(slot: SlotState, size: number): Rejection | null {
   if (slot.deletedAt) return { status: 404, code: 'slot_deleted', message: 'This slot was deleted.' }
   if (slot.currentVersionId)
     return { status: 409, code: 'slot_not_empty', message: 'Saves can only be imported into an empty slot.' }
-  if (!isAcceptedSaveSize(size))
-    return { status: 413, code: 'bad_size', message: 'That is not a Game Boy Advance save file.' }
+  if (!isAcceptedSaveSize(slot.platform, size)) return badSize(slot.platform)
   return null
+}
+
+export function badSize(platform: Platform): Rejection {
+  return { status: 413, code: 'bad_size', message: `That is not a ${PLATFORMS[platform].name} save file.` }
 }
 
 /**

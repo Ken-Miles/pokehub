@@ -23,7 +23,7 @@ export const GET = route(async (_req: Request, { params }: Ctx) => {
   ])
   const barrier = lastTrade?.seq ?? null
   return NextResponse.json({
-    slot: { ...slot, game: identifyGame(slot.gameCode) },
+    slot: { ...slot, game: identifyGame(slot.platform, slot.gameCode) },
     versions: versions.map((v) => ({
       ...v,
       current: v.id === slot.currentVersionId,

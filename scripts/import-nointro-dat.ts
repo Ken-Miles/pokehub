@@ -10,7 +10,7 @@
  */
 import { readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { identifyGame } from '../lib/games'
+import { identifyGame, type Platform } from '../lib/games'
 import { EXCLUDED_DUMP, parseDat } from '../lib/nointro'
 
 const DIR = 'data/no-intro'
@@ -22,7 +22,15 @@ const files = process.argv.slice(2).length
       .filter((f) => f.endsWith('.dat'))
       .map((f) => join(DIR, f))
 
-const hashes: Record<string, string[]> = {}
+// Codes are only read from the DAT of their own platform: DS serials reuse GBA
+// ones (e.g. "Disney Friends" is AXVE, like Ruby). 3DS games are identified from
+// their saves, so no 3DS DAT is needed.
+const PLATFORM_DATS: Record<string, Platform> = {
+  'Nintendo - Game Boy Advance': 'GBA',
+  'Nintendo - Nintendo DS (Decrypted)': 'NDS',
+}
+
+const hashes: Partial<Record<Platform, Record<string, string[]>>> = {}
 const names: Record<string, string> = {}
 const sources: { dat: string; version: string }[] = []
 const skipped: string[] = []
@@ -30,21 +38,26 @@ const skipped: string[] = []
 for (const file of files) {
   const dat = parseDat(readFileSync(file, 'utf8'))
   sources.push({ dat: dat.name, version: dat.version })
-  // Supported games are GBA only for now. DS serials use the same 4-letter shape
-  // (e.g. "Disney Friends" is AXVE, like Ruby), so never read codes from other DATs.
-  if (dat.name !== 'Nintendo - Game Boy Advance') continue
+  const platform = PLATFORM_DATS[dat.name]
+  if (!platform) continue
+  // Planned games are listed too, so a platform can be switched on without re-importing.
   for (const rom of dat.roms) {
-    if (!rom.serial || !identifyGame(rom.serial)) continue
+    if (!rom.serial || !identifyGame(platform, rom.serial)) continue
     if (EXCLUDED_DUMP.test(rom.game)) {
       skipped.push(rom.game)
       continue
     }
-    ;(hashes[rom.serial] ??= []).push(rom.sha1)
+    ;((hashes[platform] ??= {})[rom.serial] ??= []).push(rom.sha1)
     names[rom.sha1] = rom.game
   }
 }
 
-const sorted = Object.fromEntries(Object.entries(hashes).sort(([a], [b]) => a.localeCompare(b)))
+const sorted = Object.fromEntries(
+  Object.entries(hashes).map(([platform, codes]) => [
+    platform,
+    Object.fromEntries(Object.entries(codes).sort(([a], [b]) => a.localeCompare(b))),
+  ]),
+)
 writeFileSync(
   OUT,
   JSON.stringify(
@@ -59,6 +72,9 @@ writeFileSync(
     2,
   ) + '\n',
 )
-const total = Object.values(sorted).reduce((n, l) => n + l.length, 0)
-console.log(`wrote ${OUT}: ${total} dumps across ${Object.keys(sorted).length} game codes`)
+for (const [platform, codes] of Object.entries(sorted)) {
+  const total = Object.values(codes).reduce((n, l) => n + l.length, 0)
+  console.log(`${platform}: ${total} dumps across ${Object.keys(codes).length} game codes`)
+}
+console.log(`wrote ${OUT}`)
 if (skipped.length) console.log(`excluded ${skipped.length}: ${skipped.join('; ')}`)

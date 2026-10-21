@@ -1,0 +1,47 @@
+{
+  "url": "http://localhost:3100",
+  "cpu": "Apple M4 Max",
+  "at": "2026-10-21T05:39:16.036Z",
+  "runs": [
+    {
+      "pattern": "lockstep",
+      "sessions": 200,
+      "seconds": 15,
+      "fpsPerSession": {
+        "mean": 59.7,
+        "min": 59.7
+      },
+      "latencyMs": {
+        "what": "one way",
+        "p50": 0.21,
+        "p95": 0.79,
+        "p99": 5.96
+      },
+      "server": {
+        "cpuPctMean": 61,
+        "cpuPctMax": 65.7,
+        "relayedMsgsPerSecMean": 23293
+      }
+    },
+    {
+      "pattern": "lockstep",
+      "sessions": 300,
+      "seconds": 15,
+      "fpsPerSession": {
+        "mean": 59.7,
+        "min": 59.7
+      },
+      "latencyMs": {
+        "what": "one way",
+        "p50": 0.7,
+        "p95": 64.2,
+        "p99": 96.27
+      },
+      "server": {
+        "cpuPctMean": 86.7,
+        "cpuPctMax": 89.7,
+        "relayedMsgsPerSecMean": 35528
+      }
+    }
+  ]
+}

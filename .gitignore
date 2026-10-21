@@ -12,8 +12,8 @@ next-env.d.ts
 .env*.local
 
 # .NET
-save-service/bin/
-save-service/obj/
+save-service/**/bin/
+save-service/**/obj/
 
 # misc
 .DS_Store
@@ -31,3 +31,7 @@ save-service/obj/
 
 # No-Intro DATs (download by hand; see scripts/import-nointro-dat.ts)
 data/no-intro/*.dat
+
+# Playwright MCP session files
+.playwright-mcp/
+!tests/fixtures/synthetic-*.sav

@@ -24,6 +24,7 @@ public sealed record SaveSummary(
     bool Ok,
     int Generation,
     string Family,
+    string Version, // game the save was made in (E, FR, OR, US…): how 3DS slots identify their game
     TrainerInfo Trainer,
     int PlaySeconds,
     IReadOnlyList<PokemonInfo> Pokemon)
@@ -42,6 +43,7 @@ public sealed record SaveSummary(
             true,
             sav.Generation,
             SaveLoader.Family(sav)!,
+            sav.Version.ToString(),
             new TrainerInfo(sav.OT, sav.TID16, sav.SID16),
             seconds,
             list);
@@ -66,11 +68,13 @@ public sealed record SaveSummary(
 
     /// <summary>
     /// Stable identity for clone detection (FR-20): PID + TID + SID + OT name.
-    /// Never includes the checksum — that changes on every EXP gain.
+    /// Never includes the checksum — that changes on every EXP gain. The same for
+    /// every generation, because Pal Park, Poké Transfer and Bank keep all four,
+    /// so a Pokémon keeps its identity if moving it up a generation is ever allowed.
     /// </summary>
     public static string Fingerprint(PKM pk)
     {
-        var key = $"g3:{pk.PID:X8}:{pk.TID16:D5}:{pk.SID16:D5}:{pk.OriginalTrainerName}";
+        var key = $"pk1:{pk.PID:X8}:{pk.TID16:D5}:{pk.SID16:D5}:{pk.OriginalTrainerName}";
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
         return Convert.ToHexStringLower(hash)[..32];
     }
