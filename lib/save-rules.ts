@@ -11,7 +11,7 @@ export const SLOT_RECOVERY_DAYS = 30
 
 
 export interface Rejection {
-  status: 400 | 403 | 404 | 409 | 413 | 423
+  status: 400 | 403 | 404 | 409 | 413 | 422 | 423
   code: string
   message: string
 }

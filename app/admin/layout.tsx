@@ -22,7 +22,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             Game slots
           </Link>
           <Link href="/admin/dropbox" className="underline">
-            Drop box
+            Dropbox
           </Link>
         </nav>
         <span className="text-sm text-muted">

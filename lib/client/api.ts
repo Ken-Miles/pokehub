@@ -27,3 +27,12 @@ export function formatPlayTime(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60)
   return `${h}:${String(m).padStart(2, '0')}`
 }
+
+/** "just now", "5 min ago", "3 h ago", then the date (FR-10 slot card). */
+export function formatSyncedAt(iso: string, now = Date.now()): string {
+  const minutes = Math.floor((now - new Date(iso).getTime()) / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h ago`
+  return new Date(iso).toLocaleDateString()
+}

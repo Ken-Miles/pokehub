@@ -14,7 +14,8 @@ export function Nav() {
         </Link>
         {data && <Link href="/slots">My games</Link>}
         {data && <Link href="/friends">Friends</Link>}
-        {data?.user.tester && <Link href="/dropbox">Drop box</Link>}
+        {data && <Link href="/link">Link play</Link>}
+        {data?.user.tester && <Link href="/dropbox">Dropbox</Link>}
         {data && isAdmin(data.user.role) && <Link href="/admin">Admin</Link>}
         <span className="flex-1" />
         {status === 'authenticated' ? (

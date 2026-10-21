@@ -21,6 +21,7 @@
     "db:studio": "prisma studio",
     "setup:owner": "tsx scripts/create-owner.ts",
     "roms:import": "tsx scripts/import-nointro-dat.ts",
+    "emulator:build": "sh scripts/build-emulator.sh",
     "spike:link": "tsx spikes/link-latency/server.ts",
     "spike:link:load": "tsx spikes/link-latency/load.ts"
   },

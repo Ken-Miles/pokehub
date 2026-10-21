@@ -11,9 +11,10 @@ import { env } from '@/lib/env'
 
 /**
  * Save blobs in S3-compatible storage (R2 in prod, SeaweedFS in dev).
- * Save-version keys are content-addressed and never overwritten (NFR-07);
- * tester drop-box files live under `dropbox/` and can be deleted (ADR-015).
- * Game files never come through here (NFR-01).
+ * Save-version keys are content-addressed and never overwritten (NFR-07); they
+ * are deleted only when their slot is purged, 30 days after the player deleted
+ * it (ADR-017). Tester drop-box files live under `dropbox/` and can be deleted
+ * (ADR-015). Game files never come through here (NFR-01).
  */
 let client: S3Client | undefined
 let bucketReady: Promise<void> | undefined
@@ -70,9 +71,19 @@ export function dropKey(uploaderId: string, id: string): string {
   return `dropbox/${uploaderId}/${id}.bin.gz`
 }
 
-/** Drop-box files only — save-version blobs are never deleted (NFR-07). */
+/** Drop-box files only — save-version blobs go through deletePurgedSave. */
 export async function deleteDropBlob(key: string): Promise<void> {
   if (!key.startsWith('dropbox/')) throw new Error(`refusing to delete ${key}: not a drop-box file`)
+  await ensureBucket()
+  await s3().send(new DeleteObjectCommand({ Bucket: env().S3_BUCKET, Key: key }))
+}
+
+/**
+ * A save-version blob of a purged slot (ADR-017, lib/slot-purge.ts). Its
+ * database rows must already be gone; nothing else may delete version blobs.
+ */
+export async function deletePurgedSave(key: string): Promise<void> {
+  if (!key.startsWith('saves/')) throw new Error(`refusing to delete ${key}: not a save-version blob`)
   await ensureBucket()
   await s3().send(new DeleteObjectCommand({ Bucket: env().S3_BUCKET, Key: key }))
 }

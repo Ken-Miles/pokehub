@@ -72,12 +72,14 @@ export async function recoverSlot(admin: User, slotId: string): Promise<{ slotNu
 
     const conflicts =
       parsed && slot.currentVersionId
-        ? await applyRegistry(tx, {
-            slotId: slot.id,
-            versionId: slot.currentVersionId,
-            seen: parsed.pokemon,
-            newOrigin: slot.origin === 'IMPORTED' ? 'IMPORTED' : 'NATIVE',
-          })
+        ? (
+            await applyRegistry(tx, {
+              slotId: slot.id,
+              versionId: slot.currentVersionId,
+              seen: parsed.pokemon,
+              newOrigin: slot.origin === 'IMPORTED' ? 'IMPORTED' : 'NATIVE',
+            })
+          ).conflicts
         : []
 
     await audit(

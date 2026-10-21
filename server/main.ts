@@ -2,6 +2,8 @@
  * Custom Node server: runs Next.js and shares its HTTP server with Socket.IO so
  * realtime and the app live on one port (Stork v2 pattern). `npm run dev`.
  */
+// Must run before importing Next: its React server components read this Node global.
+import 'next/dist/server/node-environment-baseline'
 import { createServer } from 'http'
 import next from 'next'
 import { Server as SocketIOServer } from 'socket.io'
@@ -16,6 +18,7 @@ try {
 
 import { CLIENT_IP_HEADER, resolveClientIp } from '@/lib/client-ip'
 import { env } from '@/lib/env'
+import { attachLinkRelay } from '@/lib/link-relay'
 import { setIO } from '@/lib/realtime'
 
 const dev = process.env.NODE_ENV !== 'production'
@@ -60,6 +63,7 @@ async function main() {
     nextFn()
   })
   io.on('connection', (socket) => socket.join(`user:${socket.data.userId}`))
+  attachLinkRelay(io)
   setIO(io)
 
   server.listen(port, () => {

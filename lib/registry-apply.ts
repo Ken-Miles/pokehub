@@ -1,17 +1,17 @@
 import type { Prisma } from '@prisma/client'
-import { reconcile, type Conflict, type Origin, type SeenPokemon } from '@/lib/registry'
+import { reconcile, type Conflict, type LinkClaim, type Origin, type SeenPokemon } from '@/lib/registry'
 
 /**
  * Apply the registry rules (FR-20, lib/registry.ts#reconcile) for one save
  * version, inside the caller's transaction. Used by every save ingest
  * (lib/save-pipeline.ts) and by admin slot recovery, so both reconcile the
- * same way. Returns the conflicts it flagged.
+ * same way. Returns the conflicts it flagged and the link trades it recorded.
  */
 export async function applyRegistry(
   tx: Prisma.TransactionClient,
-  input: { slotId: string; versionId: string; seen: SeenPokemon[]; newOrigin: Origin },
-): Promise<Conflict[]> {
-  const { slotId, versionId, seen, newOrigin } = input
+  input: { slotId: string; versionId: string; seen: SeenPokemon[]; newOrigin: Origin; linkPartners?: Set<string> },
+): Promise<{ conflicts: Conflict[]; linkClaims: LinkClaim[] }> {
+  const { slotId, versionId, seen, newOrigin, linkPartners } = input
   const fingerprints = [...new Set(seen.map((p) => p.fingerprint))]
   const existing = await tx.pokemonRegistry.findMany({
     where: { fingerprint: { in: fingerprints } },
@@ -33,6 +33,7 @@ export async function applyRegistry(
     liveSlotIds: new Set(live.map((s) => s.id)),
     newOrigin,
     lastSightings: new Map(last.map((s) => [s.fingerprint, s])),
+    linkPartners,
   })
 
   if (r.inserts.length) {
@@ -53,6 +54,12 @@ export async function applyRegistry(
   if (r.claims.length) {
     await tx.pokemonRegistry.updateMany({
       where: { fingerprint: { in: r.claims } },
+      data: { currentSlotId: slotId, lastSeenAt: new Date() },
+    })
+  }
+  if (r.linkClaims.length) {
+    await tx.pokemonRegistry.updateMany({
+      where: { fingerprint: { in: r.linkClaims.map((c) => c.fingerprint) } },
       data: { currentSlotId: slotId, lastSeenAt: new Date() },
     })
   }
@@ -86,5 +93,5 @@ export async function applyRegistry(
       })),
     })
   }
-  return r.conflicts
+  return { conflicts: r.conflicts, linkClaims: r.linkClaims }
 }

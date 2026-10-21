@@ -80,6 +80,19 @@ enum FlagStatus {
   ACTIONED
 }
 
+/// FR-26: SAME_DEVICE = every seat is one player's own slot, linked in one page;
+/// NETWORK = friends in their own browsers, lockstep over the network (ADR-012).
+enum LinkMode {
+  SAME_DEVICE
+  NETWORK
+}
+
+enum LinkState {
+  LOBBY
+  ACTIVE
+  ENDED
+}
+
 enum ReportStatus {
   OPEN
   RESOLVED
@@ -102,19 +115,22 @@ model User {
   tokenVersion     Int        @default(0) // bump = sign out everywhere
   acceptUnverified Boolean    @default(false) // ADR-008
   isTester         Boolean    @default(false) // FR-32: may use the save drop box; set by an admin
+  emulatorControls Json       @default("{}") @map("emulator_controls")
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
   slots           GameSlot[]
   emailTokens     EmailToken[]
   authEvents      AuthEvent[]
-  friendsSent     Friendship[] @relation("requester")
-  friendsReceived Friendship[] @relation("addressee")
-  blocking        Block[]      @relation("blocker")
-  blockedBy       Block[]      @relation("blocked")
-  reportsFiled    Report[]     @relation("reporter")
-  reportsAgainst  Report[]     @relation("reportTarget")
+  friendsSent     Friendship[]  @relation("requester")
+  friendsReceived Friendship[]  @relation("addressee")
+  blocking        Block[]       @relation("blocker")
+  blockedBy       Block[]       @relation("blocked")
+  reportsFiled    Report[]      @relation("reporter")
+  reportsAgainst  Report[]      @relation("reportTarget")
   dropFiles       DropFile[]
+  linkHosted      LinkSession[]
+  linkSeats       LinkSeat[]
 
   @@map("users")
 }
@@ -202,10 +218,11 @@ model GameSlot {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  versions SaveVersion[]     @relation("versions")
-  registry PokemonRegistry[]
-  tradesA  Trade[]           @relation("aSlot")
-  tradesB  Trade[]           @relation("bSlot")
+  versions  SaveVersion[]     @relation("versions")
+  registry  PokemonRegistry[]
+  tradesA   Trade[]           @relation("aSlot")
+  tradesB   Trade[]           @relation("bSlot")
+  linkSeats LinkSeat[]
 
   @@index([userId])
   @@map("game_slots")
@@ -213,9 +230,9 @@ model GameSlot {
 
 /// Immutable (NFR-07). Restores and trades create new rows.
 model SaveVersion {
-  id             String     @id @default(cuid())
+  id             String        @id @default(cuid())
   slotId         String
-  slot           GameSlot   @relation("versions", fields: [slotId], references: [id], onDelete: Cascade)
+  slot           GameSlot      @relation("versions", fields: [slotId], references: [id], onDelete: Cascade)
   parentId       String?
   parent         SaveVersion?  @relation("lineage", fields: [parentId], references: [id])
   children       SaveVersion[] @relation("lineage")
@@ -227,7 +244,7 @@ model SaveVersion {
   source         SaveSource
   tradeId        String?
   restoredFromId String?
-  createdAt      DateTime   @default(now())
+  createdAt      DateTime      @default(now())
 
   currentFor   GameSlot?         @relation("current")
   lastTradeFor GameSlot?         @relation("lastTrade")
@@ -305,6 +322,59 @@ model Trade {
 
   @@index([state, expiresAt])
   @@map("trades")
+}
+
+// ---------------------------------------------------------------- link play (phase 1b)
+
+/// FR-26: a recorded link-cable session between 2–4 GBAs. Every browser runs
+/// every seat's game (ADR-012), so the record pins exactly what each seat
+/// started from: the game dump, the save version, the clock and the emulator build.
+/// A Pokémon may change slots in-game only between seats of one session (lib/registry.ts).
+model LinkSession {
+  id         String    @id @default(cuid())
+  hostId     String
+  host       User      @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  mode       LinkMode
+  state      LinkState @default(LOBBY)
+  /// Every GBA's clock starts here (ms since epoch), so linked games agree on the time.
+  rtcEpochMs BigInt?
+  inputDelay Int? // frames (lib/client/lockstep.ts)
+  coreBuild  String? // emulator build every browser must run (public/emulator/core/build.json sha256)
+  endReason  String? // ended | left | disconnected | desync | expired
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  endedAt    DateTime?
+
+  seats LinkSeat[]
+
+  @@index([state, createdAt])
+  @@index([hostId])
+  @@map("link_sessions")
+}
+
+/// One GBA on the cable. Seat 0 is the cable's parent (the host).
+model LinkSeat {
+  id             String      @id @default(cuid())
+  sessionId      String
+  session        LinkSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  seat           Int
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slotId         String?
+  slot           GameSlot?   @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  /// SHA-1 of the game file this seat plays; every browser must load the same dump.
+  romSha1        String?
+  coreBuild      String?
+  readyAt        DateTime?
+  /// The slot's save version when the session started; every browser boots this seat from it.
+  startVersionId String?
+  createdAt      DateTime    @default(now())
+
+  @@unique([sessionId, seat])
+  @@unique([sessionId, slotId])
+  @@index([slotId])
+  @@index([userId])
+  @@map("link_seats")
 }
 
 // ---------------------------------------------------------------- trust & moderation

@@ -17,10 +17,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
           <footer className="mx-auto max-w-5xl px-4 pb-8 text-xs text-muted">
             We never host or distribute games — load a backup of a game you own. The emulator is{' '}
-            <a className="underline" href="https://github.com/EmulatorJS/EmulatorJS">
-              EmulatorJS
+            <a className="underline" href="https://github.com/mgba-emu/mgba">
+              mGBA
             </a>{' '}
-            (GPL-3.0), served unmodified.
+            {' '}
+            <a className="underline" href="https://github.com/mgba-emu/mgba/tree/0.10.5">
+              0.10.5
+            </a>{' '}
+            (MPL-2.0), unmodified, built for the browser.
           </footer>
         </Providers>
       </body>

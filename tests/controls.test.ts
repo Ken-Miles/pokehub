@@ -1,21 +1,20 @@
-import { keyLabel, legend, type Binding } from '@/lib/client/controls'
+import { canBind, keyLabel, legend, type Binding } from '@/lib/client/controls'
 
 /** FR-06: the on-screen legend shows the player's current bindings. */
 const defaults: Binding[] = [
-  { id: 8, key: 'z', pad: 'BUTTON_1' },
-  { id: 0, key: 'x', pad: 'BUTTON_2' },
-  { id: 10, key: 'q', pad: 'LEFT_TOP_SHOULDER' },
-  { id: 11, key: 'e', pad: 'RIGHT_TOP_SHOULDER' },
-  { id: 3, key: 'enter', pad: 'START' },
-  { id: 2, key: 'v', pad: 'SELECT' },
-  { id: 4, key: 'up arrow', pad: 'DPAD_UP' },
-  { id: 5, key: 'down arrow', pad: 'DPAD_DOWN' },
-  { id: 6, key: 'left arrow', pad: 'DPAD_LEFT' },
-  { id: 7, key: 'right arrow', pad: 'DPAD_RIGHT' },
-  { id: 24, key: '1', pad: null },
-  { id: 25, key: '2', pad: null },
-  { id: 26, key: '3', pad: null },
-  { id: 27, key: null, pad: null },
+  { id: 'a', key: 'KeyX', pad: 'BUTTON_2' },
+  { id: 'b', key: 'KeyZ', pad: 'BUTTON_1' },
+  { id: 'l', key: 'KeyA', pad: 'LEFT_TOP_SHOULDER' },
+  { id: 'r', key: 'KeyS', pad: 'RIGHT_TOP_SHOULDER' },
+  { id: 'start', key: 'Enter', pad: 'START' },
+  { id: 'select', key: 'Backspace', pad: 'SELECT' },
+  { id: 'up', key: 'ArrowUp', pad: 'DPAD_UP' },
+  { id: 'down', key: 'ArrowDown', pad: 'DPAD_DOWN' },
+  { id: 'left', key: 'ArrowLeft', pad: 'DPAD_LEFT' },
+  { id: 'right', key: 'ArrowRight', pad: 'DPAD_RIGHT' },
+  { id: 'save', key: 'F2', pad: null },
+  { id: 'load', key: 'F4', pad: null },
+  { id: 'slot', key: 'F3', pad: null },
 ]
 
 describe('legend', () => {
@@ -25,25 +24,38 @@ describe('legend', () => {
       'A', 'B', 'L', 'R', 'Start', 'Select', 'Up', 'Down', 'Left', 'Right',
       'Quick save state', 'Quick load state', 'Next state slot',
     ])
-    expect(rows[0]).toEqual({ action: 'A', key: 'Z', pad: 'Bottom face button' })
+    expect(rows[0]).toEqual({ id: 'a', action: 'A', key: 'X', pad: 'Right face button' })
     expect(rows.find((r) => r.action === 'Up')?.key).toBe('↑')
     expect(rows.find((r) => r.action === 'Start')?.key).toBe('Enter')
   })
 
-  it('shows a remap and a newly bound fast-forward key', () => {
-    const remapped = defaults.map((b) => (b.id === 8 ? { ...b, key: 'k' } : b.id === 27 ? { ...b, key: 'space' } : b))
+  it('shows a remapped game key', () => {
+    const remapped = defaults.map((b) => (b.id === 'a' ? { ...b, key: 'KeyK' } : b))
     const rows = legend(remapped)
     expect(rows[0].key).toBe('K')
-    expect(rows.find((r) => r.action === 'Fast-forward (hold)')?.key).toBe('Space')
   })
 
   it('flags an unbound game button instead of hiding it', () => {
-    const rows = legend(defaults.map((b) => (b.id === 0 ? { ...b, key: null, pad: null } : b)))
-    expect(rows.find((r) => r.action === 'B')).toEqual({ action: 'B', key: 'Not set', pad: null })
+    const rows = legend(defaults.map((b) => (b.id === 'b' ? { ...b, key: null, pad: null } : b)))
+    expect(rows.find((r) => r.action === 'B')).toEqual({ id: 'b', action: 'B', key: 'Not set', pad: null })
   })
 
-  it('keeps unknown names as they are', () => {
-    expect(keyLabel('numpad 5')).toBe('numpad 5')
+  it('hides save states while linked (lockstep has neither)', () => {
+    const rows = legend(defaults, { linked: true })
+    expect(rows.map((r) => r.id)).toEqual(['a', 'b', 'l', 'r', 'start', 'select', 'up', 'down', 'left', 'right'])
+  })
+
+  it('names keys by code, and keeps unknown codes as they are', () => {
+    expect(keyLabel('Digit1')).toBe('1')
+    expect(keyLabel('Numpad5')).toBe('Numpad 5')
+    expect(keyLabel('ShiftLeft')).toBe('Left Shift')
+    expect(keyLabel('IntlRo')).toBe('IntlRo')
     expect(keyLabel(null)).toBe('Not set')
+  })
+
+  it("won't bind keys the browser needs", () => {
+    expect(canBind('Escape')).toBe(false)
+    expect(canBind('F5')).toBe(false)
+    expect(canBind('KeyQ')).toBe(true)
   })
 })

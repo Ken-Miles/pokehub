@@ -6,6 +6,7 @@ import { saveFamilyMatchesGame } from '@/lib/games'
 import { HttpError } from '@/lib/http'
 import { emitToUser } from '@/lib/realtime'
 import type { Conflict } from '@/lib/registry'
+import { linkPartnerSlots } from '@/lib/link-sessions'
 import { applyRegistry } from '@/lib/registry-apply'
 import { checkImport, checkUpload } from '@/lib/save-rules'
 import { SaveServiceError, saveService, type ParsedSave } from '@/lib/save-service'
@@ -95,12 +96,36 @@ export async function ingestSave(opts: {
       throw new HttpError(409, 'stale_parent', 'Your save changed somewhere else. Reload to continue.')
     }
 
-    const conflicts = await applyRegistry(tx, {
+    const { conflicts, linkClaims } = await applyRegistry(tx, {
       slotId: slot.id,
       versionId: version.id,
       seen: parsed.pokemon,
       newOrigin: source === 'IMPORT' ? 'IMPORTED' : 'NATIVE',
+      linkPartners: source === 'EMULATOR' ? await linkPartnerSlots(tx, slot.id) : undefined,
     })
+
+    // A link trade is a trade (ADR-007): neither slot may restore to before it.
+    // The giver's barrier is its current save; restoring that one would only
+    // bring back a Pokémon the registry now says lives here (a clone flag).
+    if (linkClaims.length) {
+      await tx.gameSlot.update({ where: { id: slot.id }, data: { lastTradeVersionId: version.id } })
+      for (const from of new Set(linkClaims.map((c) => c.fromSlotId))) {
+        const giver = await tx.gameSlot.findUniqueOrThrow({ where: { id: from }, select: { currentVersionId: true, lastTradeVersionId: true } })
+        if (giver.currentVersionId && giver.currentVersionId !== giver.lastTradeVersionId) {
+          await tx.gameSlot.update({ where: { id: from }, data: { lastTradeVersionId: giver.currentVersionId } })
+        }
+      }
+      await audit(
+        {
+          actorId,
+          action: 'link.trade',
+          targetType: 'slot',
+          targetId: slot.id,
+          payload: { versionId: version.id, received: linkClaims.map((c) => ({ fingerprint: c.fingerprint, from: c.fromSlotId })) },
+        },
+        tx,
+      )
+    }
 
     if (source !== 'EMULATOR' || conflicts.length) {
       await audit(

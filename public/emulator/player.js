@@ -1,48 +1,108 @@
 /*
- * Glue between Pokémon Hub and EmulatorJS (ADR-009).
+ * Pokémon Hub's emulator page: our mGBA WebAssembly build (ADR-011) with
+ * 1–4 GBAs, linked by an in-memory cable when there is more than one (ADR-018).
  *
- * parent → iframe   { type: 'boot', rom: ArrayBuffer, save: ArrayBuffer|null, core: 'gba', data: url }
+ * The parent page drives every frame, so solo play and lockstep link play are
+ * the same loop (lib/client/emulator.ts):
+ *
+ * parent → iframe   { type: 'boot', games: [{ rom, save, patch }], local: [core…], audioFrom, rtc: { mode: 'wall' } | { mode: 'fixed', epochMs } }
+ *                   { type: 'frame', count, inputs?: number[], hash?: boolean }
+ *                       inputs = GBA key bits per core (lockstep); without it, each local core reads this page's devices
  *                   { type: 'pause' } | { type: 'resume' }
  *                   { type: 'flush' } — "Sync now": read save RAM immediately
- *                   { type: 'clear-states' } — the cloud save changed elsewhere (FR-06)
- *                   { type: 'fast-forward', on: boolean }
- * iframe → parent   { type: 'ready' } | { type: 'started' }
- *                   { type: 'save', bytes: ArrayBuffer, sha256: string }
+ *                   { type: 'clear-states' } — the cloud save changed elsewhere (ADR-016)
+ *                   { type: 'bind', action, code } | { type: 'reset-bindings' }
+ * iframe → parent   { type: 'ready' } | { type: 'started', build } | { type: 'error', message }
+ *                   { type: 'framed', local: number[], hash?: number, stalls: number }
+ *                       local = keys held on this page per local core, sampled after the frame
+ *                   { type: 'save', core, bytes: ArrayBuffer, sha256: string }
  *                   { type: 'unchanged' } — answer to a flush with nothing new
- *                   { type: 'controls', keys: [{ id, key, pad }], fastForward: boolean }
+ *                   { type: 'controls', keys: [{ id, key, pad }], players: number }
  *
- * The game file arrives as bytes from the parent page and never leaves the browser.
- * EmulatorJS has no reliable "game saved" event, so save RAM is polled and hashed.
- *
- * Save states (FR-06, ADR-016) live only in the emulator's in-memory file system: quick
- * slots 1–9, which the Save/Load State buttons are pointed at too, so nothing is
- * downloaded or kept in browser storage. A reload clears them, and the parent
- * sends clear-states when the cloud save changes elsewhere (trade, restore), so
- * no state from before that change can be loaded and saved over it.
+ * Game files arrive as bytes from the parent and never leave this page. Save
+ * states live only in this page's memory, and not at all while linked: a state
+ * loaded mid-session would break lockstep and could undo a link trade.
  */
-(function () {
+;(function () {
   'use strict'
 
+  var origin = location.origin
   var POLL_MS = 2000
   var STATE_SLOTS = 9
-  // GBA buttons and the hotkeys the page lists (EmulatorJS control ids).
-  var CONTROL_IDS = [8, 0, 10, 11, 3, 2, 4, 5, 6, 7, 24, 25, 26, 27]
-  var origin = location.origin
-  var lastHash = null // hash of the save the server already has
-  var pendingHash = null // seen once; reported when the next poll agrees
+  var W = 240
+  var H = 160
+  var AUDIO_STORAGE_KEY = 'pokehub.audio.v1'
+
+  // GBA key register bits.
+  var BITS = { a: 0, b: 1, select: 2, start: 3, right: 4, left: 5, up: 6, down: 7, r: 8, l: 9 }
+  // KeyboardEvent.code per action; hotkeys after the GBA buttons.
+  var DEFAULT_KEYS = {
+    a: 'KeyX', b: 'KeyZ', l: 'KeyA', r: 'KeyS', start: 'Enter', select: 'Backspace',
+    up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+    save: 'F2', load: 'F4', slot: 'F3',
+  }
+  var ACTIONS = Object.keys(DEFAULT_KEYS)
+  // Standard gamepad mapping, by position (Nintendo layout: A is the right face button).
+  var PAD = { a: 1, b: 0, l: 4, r: 5, select: 8, start: 9, up: 12, down: 13, left: 14, right: 15 }
+  var PAD_NAMES = {
+    0: 'BUTTON_1', 1: 'BUTTON_2', 4: 'LEFT_TOP_SHOULDER', 5: 'RIGHT_TOP_SHOULDER',
+    8: 'SELECT', 9: 'START', 12: 'DPAD_UP', 13: 'DPAD_DOWN', 14: 'DPAD_LEFT', 15: 'DPAD_RIGHT',
+  }
+
+  var hub = null
+  var booting = false
+  var cores = 0
+  var local = [] // cores this page plays, in player order
+  var linked = false
   var paused = false
-  var booted = false
+  var keys = Object.assign({}, DEFAULT_KEYS)
+  var held = {} // KeyboardEvent.code → true
+  var states = {} // slot → Uint8Array (solo only)
+  var stateSlot = 1
+  var lastHash = {} // core → hash of the save the server has
+  var pendingHash = {} // core → seen once; reported when the next poll agrees
+  var screens = []
+  var audio = null
+  var audioSettings = loadAudioSettings()
+  var messageTimer = null
 
   function post(msg, transfer) {
     parent.postMessage(msg, origin, transfer || [])
   }
 
-  function emu() {
-    return window.EJS_emulator
+  function loadAudioSettings() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(AUDIO_STORAGE_KEY) || '{}')
+      return { muted: !!saved.muted, volume: typeof saved.volume === 'number' ? Math.max(0, Math.min(1, saved.volume)) : 1 }
+    } catch (e) {
+      return { muted: false, volume: 1 }
+    }
   }
 
-  function gm() {
-    return emu() && emu().gameManager
+  function reportAudio() {
+    post({ type: 'audio', state: audio ? audio.ctx.state : 'unavailable' })
+  }
+
+  function reportControls() {
+    post({
+      type: 'controls',
+      keys: ACTIONS.map(function (id) {
+        return { id: id, key: keys[id] || null, pad: id in PAD ? PAD_NAMES[PAD[id]] : null }
+      }),
+      muted: audioSettings.muted,
+      volume: audioSettings.volume,
+      players: local.length,
+    })
+  }
+
+  function say(text) {
+    var el = document.getElementById('message')
+    el.textContent = text
+    el.hidden = false
+    clearTimeout(messageTimer)
+    messageTimer = setTimeout(function () {
+      el.hidden = true
+    }, 2500)
   }
 
   async function sha256(bytes) {
@@ -52,173 +112,357 @@
     }).join('')
   }
 
-  // Same steps as EmulatorJS's own "load save file" button.
-  function writeSave(bytes) {
-    var g = gm()
-    var path = g.getSaveFilePath()
-    var parts = path.split('/')
-    var dir = ''
-    for (var i = 0; i < parts.length - 1; i++) {
-      if (!parts[i]) continue
-      dir += '/' + parts[i]
-      if (!g.FS.analyzePath(dir).exists) g.FS.mkdir(dir)
+  // ------------------------------------------------------------ input
+
+  function padKeys(pad) {
+    var bits = 0
+    if (!pad) return 0
+    for (var action in PAD) if (pad.buttons[PAD[action]] && pad.buttons[PAD[action]].pressed) bits |= 1 << BITS[action]
+    var x = pad.axes[0] || 0
+    var y = pad.axes[1] || 0
+    if (x < -0.5) bits |= 1 << BITS.left
+    if (x > 0.5) bits |= 1 << BITS.right
+    if (y < -0.5) bits |= 1 << BITS.up
+    if (y > 0.5) bits |= 1 << BITS.down
+    return bits
+  }
+
+  function keyboardKeys() {
+    var bits = 0
+    for (var action in BITS) if (held[keys[action]]) bits |= 1 << BITS[action]
+    return bits
+  }
+
+  /**
+   * Keys per local player. One player: keyboard and any gamepad. Two or more
+   * on this device: player 1 on the keyboard, the others on gamepads in order.
+   */
+  function sampleLocal() {
+    var pads = navigator.getGamepads ? Array.prototype.filter.call(navigator.getGamepads(), Boolean) : []
+    if (local.length === 1) {
+      return [keyboardKeys() | pads.reduce(function (acc, p) { return acc | padKeys(p) }, 0)]
     }
-    if (g.FS.analyzePath(path).exists) g.FS.unlink(path)
-    g.FS.writeFile(path, bytes)
-    g.loadSaveFiles()
+    return local.map(function (_, i) {
+      return i === 0 ? keyboardKeys() : padKeys(pads[i - 1])
+    })
+  }
+
+  function onKey(e, down) {
+    if (!(e.code in held) && !down) return
+    var action = ACTIONS.find(function (a) { return keys[a] === e.code })
+    if (action) e.preventDefault()
+    if (down && !held[e.code] && !e.repeat) hotkey(action)
+    if (down) held[e.code] = true
+    else delete held[e.code]
+    if (audio) audio.ctx.resume().catch(function () {})
+  }
+
+  function hotkey(action) {
+    if (action !== 'save' && action !== 'load' && action !== 'slot') return
+    if (linked) return say('Save states are off while linked')
+    if (action === 'slot') {
+      stateSlot = (stateSlot % STATE_SLOTS) + 1
+      return say('State slot ' + stateSlot)
+    }
+    var core = local[0]
+    if (action === 'save') {
+      var size = hub._hub_state_size(core)
+      var ptr = hub._malloc(size)
+      var ok = hub._hub_state_save(core, ptr)
+      if (ok) states[stateSlot] = hub.HEAPU8.slice(ptr, ptr + size)
+      hub._free(ptr)
+      return say(ok ? 'Saved state to slot ' + stateSlot + ' (this tab only)' : 'Failed to save state')
+    }
+    var state = states[stateSlot]
+    if (!state) return say('No state in slot ' + stateSlot)
+    var p = hub._malloc(state.length)
+    hub.HEAPU8.set(state, p)
+    hub._hub_state_load(core, p)
+    hub._free(p)
+    say('Loaded state from slot ' + stateSlot)
+  }
+
+  // ------------------------------------------------------------ video and audio
+
+  function makeScreens() {
+    var root = document.getElementById('screens')
+    root.className = local.length > 1 ? 'split' : ''
+    screens = local.map(function (core, i) {
+      var canvas = document.createElement('canvas')
+      canvas.width = W
+      canvas.height = H
+      canvas.tabIndex = 0
+      canvas.setAttribute('aria-label', local.length > 1 ? 'Player ' + (i + 1) : 'Game screen')
+      root.appendChild(canvas)
+      var ctx = canvas.getContext('2d')
+      return { core: core, ctx: ctx, image: ctx.createImageData(W, H) }
+    })
+    if (screens[0]) screens[0].ctx.canvas.focus()
+  }
+
+  function draw() {
+    for (var i = 0; i < screens.length; i++) {
+      var s = screens[i]
+      var ptr = hub._hub_video(s.core)
+      s.image.data.set(hub.HEAPU8.subarray(ptr, ptr + W * H * 4))
+      s.ctx.putImageData(s.image, 0, 0)
+    }
+  }
+
+  async function startAudio() {
+    try {
+      var Audio = window.AudioContext || window.webkitAudioContext
+      if (!Audio) throw new Error('Web Audio is unavailable in this browser.')
+      var ctx = new Audio({ latencyHint: 'interactive' })
+      // Schedule short PCM buffers directly on the destination. This avoids
+      // both AudioWorklet startup restrictions and ScriptProcessor callbacks,
+      // which can be throttled when the emulator is inside an iframe.
+      audio = {
+        ctx: ctx,
+        rate: ctx.sampleRate,
+        nextTime: 0,
+        sources: [],
+        push: function (samples) {
+          var sampleFrames = samples.length >> 1
+          if (ctx.state !== 'running' || !sampleFrames) {
+            this.nextTime = ctx.currentTime
+            return
+          }
+          var duration = sampleFrames / ctx.sampleRate
+          var when = Math.max(this.nextTime, ctx.currentTime + 0.025)
+          if (when > ctx.currentTime + 0.2) {
+            this.sources.forEach(function (source) { try { source.stop() } catch (e) {} })
+            this.sources = []
+            when = ctx.currentTime + 0.025
+          }
+          var buffer = ctx.createBuffer(2, sampleFrames, ctx.sampleRate)
+          var left = buffer.getChannelData(0)
+          var right = buffer.getChannelData(1)
+          for (var i = 0; i < sampleFrames; i++) {
+            left[i] = samples[i * 2]
+            right[i] = samples[i * 2 + 1]
+          }
+          var source = ctx.createBufferSource()
+          source.buffer = buffer
+          source.connect(ctx.destination)
+          this.sources.push(source)
+          var sources = this.sources
+          source.onended = function () {
+            var index = sources.indexOf(source)
+            if (index >= 0) sources.splice(index, 1)
+            source.disconnect()
+          }
+          source.start(when)
+          this.nextTime = when + duration
+        },
+      }
+      ctx.addEventListener('statechange', reportAudio)
+      reportAudio()
+    } catch (e) {
+      audio = null
+      reportAudio()
+    }
+  }
+
+  // Called directly by the parent settings button so resume() runs inside the
+  // user's click activation. A postMessage handler runs in a later task and can
+  // be rejected by browsers' autoplay policy.
+  window.enableHubAudio = function () {
+    if (audio) {
+      audio.ctx.resume().catch(function () {})
+      return
+    }
+    startAudio().then(function () {
+      if (audio) audio.ctx.resume().catch(function () {})
+    })
+  }
+
+  function pushAudio(dropForCatchup) {
+    var frames = hub.audioFrames | 0
+    var pcm = null
+    if (frames) {
+      var ptr = hub._hub_audio() >> 1
+      pcm = hub.HEAP16.subarray(ptr, ptr + frames * 2)
+    }
+    if (!audio || !frames || dropForCatchup) return
+    var out = new Float32Array(frames * 2)
+    var gain = audioSettings.muted ? 0 : audioSettings.volume
+    for (var i = 0; i < out.length; i++) out[i] = (pcm[i] / 32768) * gain
+    audio.push(out)
+  }
+
+  // ------------------------------------------------------------ saves
+
+  function readSave(core) {
+    var size = hub._hub_save_read(core)
+    if (!size) return null
+    var ptr = hub._hub_save_data()
+    return hub.HEAPU8.slice(ptr, ptr + size)
   }
 
   // `force` (Sync now) skips the two-poll debounce: the player asked for it.
   async function poll(force) {
-    var g = gm()
-    if (!g || paused) {
-      if (force) post({ type: 'unchanged' })
+    if (!hub) {
+      if (force) {
+        post({ type: 'unchanged' })
+        post({ type: 'flushed' })
+      }
       return
     }
-    var bytes
+    var sent = false
+    for (var i = 0; i < local.length; i++) {
+      var core = local[i]
+      var bytes = readSave(core)
+      if (!bytes) continue
+      var hash = await sha256(bytes)
+      if (hash === lastHash[core]) {
+        pendingHash[core] = null
+        continue
+      }
+      // Debounce: only report once two polls agree, so a save in progress isn't sent half-written.
+      if (!force && hash !== pendingHash[core]) {
+        pendingHash[core] = hash
+        continue
+      }
+      lastHash[core] = hash
+      pendingHash[core] = null
+      sent = true
+      post({ type: 'save', core: core, bytes: bytes.buffer, sha256: hash }, [bytes.buffer])
+    }
+    if (force && !sent) post({ type: 'unchanged' })
+    if (force) post({ type: 'flushed' })
+  }
+
+  // ------------------------------------------------------------ boot and frames
+
+  function copyIn(buffer) {
+    if (!buffer) return [0, 0]
+    var bytes = new Uint8Array(buffer)
+    var ptr = hub._malloc(bytes.length) // kept: mGBA maps the game in place
+    hub.HEAPU8.set(bytes, ptr)
+    return [ptr, bytes.length]
+  }
+
+  async function boot(msg) {
+    if (hub || booting) return
+    booting = true
     try {
-      bytes = g.getSaveFile() // flushes save RAM to the virtual FS, then reads it
-    } catch (e) {
-      return
-    }
-    if (!bytes || !bytes.length) return
-    var hash = await sha256(bytes)
-    if (hash === lastHash) {
-      pendingHash = null
-      if (force) post({ type: 'unchanged' })
-      return
-    }
-    // Debounce: only report once two polls agree, so a save in progress isn't sent half-written.
-    if (!force && hash !== pendingHash) {
-      pendingHash = hash
-      return
-    }
-    lastHash = hash
-    pendingHash = null
-    var copy = bytes.slice().buffer
-    post({ type: 'save', bytes: copy, sha256: hash }, [copy])
-  }
-
-  function setPaused(value) {
-    paused = value
-    var e = emu()
-    if (e && typeof e.togglePlaying === 'function' && e.paused !== value) e.togglePlaying()
-  }
-
-  function stateSlot() {
-    var v = emu().getSettingValue && emu().getSettingValue('save-state-slot')
-    return v || '1'
-  }
-
-  // The Save/Load State buttons would download a .state file (which could be
-  // loaded again after a trade); answer their events so they use the in-memory
-  // slot instead. EmulatorJS skips its own handling when a listener exists.
-  function keepStatesInMemory() {
-    var e = emu()
-    e.on('saveState', function () {
-      var slot = stateSlot()
-      e.displayMessage(gm().quickSave(slot) ? 'Saved state to slot ' + slot + ' (this tab only)' : 'Failed to save state')
-    })
-    e.on('loadState', function () {
-      var slot = stateSlot()
-      if (!gm().FS.analyzePath('/' + slot + '-quick.state').exists) return e.displayMessage('No state in slot ' + slot)
-      gm().quickLoad(slot)
-      e.displayMessage('Loaded state from slot ' + slot)
-    })
-  }
-
-  function clearStates() {
-    var g = gm()
-    if (!g) return
-    for (var i = 1; i <= STATE_SLOTS; i++) {
-      try {
-        g.FS.unlink('/' + i + '-quick.state')
-      } catch (err) {
-        /* slot was empty */
+      if (msg.bindings && typeof msg.bindings === 'object') {
+        for (var action in msg.bindings) {
+          if (action in DEFAULT_KEYS && (typeof msg.bindings[action] === 'string' || msg.bindings[action] === null)) {
+            keys[action] = msg.bindings[action]
+          }
+        }
       }
-    }
-  }
-
-  // Current key and gamepad bindings, including the player's remaps.
-  function reportControls() {
-    var e = emu()
-    if (!e || !e.controls) return
-    var keys = CONTROL_IDS.map(function (id) {
-      var c = e.controls[0] && e.controls[0][id]
-      var code = c && c.value
-      return { id: id, key: code ? e.keyMap[code] || String(code) : null, pad: (c && c.value2) || null }
-    })
-    post({ type: 'controls', keys: keys, fastForward: !!e.isFastForward })
-  }
-
-  function setFastForward(on) {
-    var e = emu()
-    if (!e || !e.changeSettingOption) return
-    var value = on ? 'enabled' : 'disabled'
-    e.changeSettingOption('fastForward', value)
-    e.menuOptionChanged('fastForward', value)
-    reportControls()
-  }
-
-  // Hiding the Cheats button isn't enough: EmulatorJS restores cheats saved in
-  // localStorage and re-applies them when it builds its menu. Drop them and stub
-  // the hook. Only a deterrent — anyone with devtools can still poke the core,
-  // so the server-side legality and registry checks remain the real defence.
-  function disableCheats() {
-    var e = emu()
-    if (!e) return
-    e.cheats = []
-    e.cheatChanged = function () {}
-    if (gm() && typeof gm().resetCheat === 'function') gm().resetCheat()
-  }
-
-  function boot(msg) {
-    if (booted) return
-    booted = true
-    window.EJS_player = '#game'
-    window.EJS_core = msg.core
-    window.EJS_pathtodata = msg.data
-    window.EJS_gameUrl = new Blob([msg.rom])
-    window.EJS_gameName = 'game'
-    window.EJS_startOnLoaded = true
-    window.EJS_disableDatabases = true // no second copy of saves or the game in IndexedDB
-    window.EJS_hideSettings = ['save-state-location'] // states are always in-memory here
-    // Cloud saves replace EmulatorJS's own save import/export; netplay is out of scope.
-    window.EJS_Buttons = { saveSavFiles: false, loadSavFiles: false, cacheManager: false, netplay: false, cheat: false }
-    window.EJS_onGameStart = async function () {
-      disableCheats()
-      keepStatesInMemory()
-      // Remaps and menu toggles all go through saveSettings; report after each.
-      var saveSettings = emu().saveSettings.bind(emu())
-      emu().saveSettings = function () {
-        saveSettings()
-        reportControls()
+      await startAudio()
+      hub = await window.createMgbaHub({
+        locateFile: function (path) {
+          return 'core/' + path
+        },
+      })
+      cores = msg.games.length
+      local = msg.local
+      linked = cores > 1
+      var rtc = msg.rtc && msg.rtc.mode === 'fixed' ? msg.rtc.epochMs : 0
+      if (!hub._hub_init(cores, audio ? audio.rate : 48000, msg.rtc && msg.rtc.mode === 'fixed' ? 1 : 0, rtc)) {
+        throw new Error('The emulator could not start.')
       }
-      if (msg.save) {
-        var save = new Uint8Array(msg.save)
-        writeSave(save)
-        lastHash = await sha256(save)
-        gm().restart() // boot again so the game reads the cloud save from the start
+      for (var i = 0; i < cores; i++) {
+        var g = msg.games[i]
+        var rom = copyIn(g.rom)
+        var save = copyIn(g.save)
+        var patch = copyIn(g.patch)
+        if (!hub._hub_load(i, rom[0], rom[1], save[0], save[1], patch[0], patch[1])) {
+          throw new Error('Game ' + (i + 1) + ' could not be loaded.')
+        }
+        if (save[0]) hub._free(save[0]) // copied into the core's in-memory save file
+        if (patch[0]) hub._free(patch[0]) // applied at load
       }
-      post({ type: 'started' })
+      hub._hub_start(msg.audioFrom == null ? local[0] : msg.audioFrom)
+      for (var j = 0; j < local.length; j++) {
+        var initial = msg.games[local[j]].save
+        if (initial) lastHash[local[j]] = await sha256(initial)
+      }
+      makeScreens()
+      var build = await fetch('core/build.json').then(function (r) { return r.json() }).catch(function () { return null })
+      post({ type: 'started', build: build })
       reportControls()
       setInterval(function () {
         poll(false)
       }, POLL_MS)
+    } catch (e) {
+      post({ type: 'error', message: e.message || String(e) })
     }
-    var script = document.createElement('script')
-    script.src = msg.data + 'loader.js'
-    document.body.appendChild(script)
   }
 
+  function frame(msg) {
+    if (!hub || paused) return post({ type: 'framed', local: sampleLocal(), stalls: 0, skipped: true })
+    var count = Math.max(1, Math.min(msg.count | 0, 8))
+    var catchingUp = count > 1
+    for (var n = 0; n < count; n++) {
+      if (msg.inputs) {
+        for (var c = 0; c < cores; c++) hub._hub_set_keys(c, msg.inputs[c] | 0)
+      } else {
+        var mine = sampleLocal()
+        for (var l = 0; l < local.length; l++) hub._hub_set_keys(local[l], mine[l])
+      }
+      hub._hub_run_frame()
+      pushAudio(catchingUp && n < count - 1)
+    }
+    draw()
+    var reply = {
+      type: 'framed',
+      local: sampleLocal(),
+      stalls: hub._hub_stalls(),
+    }
+    if (msg.hash) reply.hash = hub._hub_hash()
+    post(reply)
+  }
+
+  function setPaused(value) {
+    paused = value
+    if (audio) (value ? audio.ctx.suspend() : audio.ctx.resume()).catch(function () {})
+  }
+
+  window.addEventListener('keydown', function (e) {
+    onKey(e, true)
+  })
+  window.addEventListener('keyup', function (e) {
+    onKey(e, false)
+  })
+  window.addEventListener('blur', function () {
+    held = {}
+  })
+  document.addEventListener('pointerdown', function () {
+    if (screens[0]) screens[0].ctx.canvas.focus()
+    if (audio) audio.ctx.resume().catch(function () {})
+  })
+
   window.addEventListener('message', function (e) {
-    if (e.origin !== origin || !e.data) return
-    if (e.data.type === 'boot') boot(e.data)
-    else if (e.data.type === 'pause') setPaused(true)
-    else if (e.data.type === 'resume') setPaused(false)
-    else if (e.data.type === 'flush') poll(true)
-    else if (e.data.type === 'clear-states') clearStates()
-    else if (e.data.type === 'fast-forward') setFastForward(!!e.data.on)
+    if (e.origin !== origin || e.source !== parent || !e.data) return
+    var m = e.data
+    if (m.type === 'ping') post({ type: 'ready' })
+    else if (m.type === 'boot') boot(m)
+    else if (m.type === 'frame') frame(m)
+    else if (m.type === 'pause') setPaused(true)
+    else if (m.type === 'resume') setPaused(false)
+    else if (m.type === 'flush') poll(true)
+    else if (m.type === 'clear-states') states = {}
+    else if (m.type === 'bind' && ACTIONS.indexOf(m.action) >= 0 && typeof m.code === 'string') {
+      for (var a in keys) if (keys[a] === m.code) keys[a] = null // one action per key
+      keys[m.action] = m.code
+      reportControls()
+    } else if (m.type === 'reset-bindings') {
+      keys = Object.assign({}, DEFAULT_KEYS)
+      reportControls()
+    } else if (m.type === 'enable-audio') {
+      window.enableHubAudio()
+    } else if (m.type === 'audio-settings') {
+      audioSettings.muted = !!m.muted
+      if (typeof m.volume === 'number') audioSettings.volume = Math.max(0, Math.min(1, m.volume))
+      try { localStorage.setItem(AUDIO_STORAGE_KEY, JSON.stringify(audioSettings)) } catch (e) { /* in-memory only */ }
+      reportControls()
+    }
   })
 
   post({ type: 'ready' })

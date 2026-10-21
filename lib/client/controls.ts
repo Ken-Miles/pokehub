@@ -1,49 +1,70 @@
 /**
  * The on-screen controls legend (FR-06), built from the bindings the emulator
- * bridge reports (public/emulator/player.js → { type: 'controls' }). Remaps made
- * in EmulatorJS's Control Settings show up here as soon as they are saved.
+ * page reports (public/emulator/player.js → { type: 'controls' }). Remaps made
+ * in the legend show up here as soon as the emulator stores them.
  */
 
+export type Action = 'a' | 'b' | 'l' | 'r' | 'start' | 'select' | 'up' | 'down' | 'left' | 'right' | 'save' | 'load' | 'slot'
+
 export interface Binding {
-  id: number // EmulatorJS control id
-  key: string | null // keyboard key name, e.g. "z", "up arrow"
+  id: Action
+  key: string | null // KeyboardEvent.code, e.g. "KeyZ", "ArrowUp"
   pad: string | null // gamepad button, e.g. "BUTTON_1", "DPAD_UP"
 }
 
 export interface LegendRow {
+  id: Action
   action: string
   key: string
   pad: string | null
 }
 
 // GBA buttons first, then the hotkeys, in the order a player looks for them.
-const ACTIONS: [number, string][] = [
-  [8, 'A'],
-  [0, 'B'],
-  [10, 'L'],
-  [11, 'R'],
-  [3, 'Start'],
-  [2, 'Select'],
-  [4, 'Up'],
-  [5, 'Down'],
-  [6, 'Left'],
-  [7, 'Right'],
-  [27, 'Fast-forward (hold)'],
-  [24, 'Quick save state'],
-  [25, 'Quick load state'],
-  [26, 'Next state slot'],
+const ACTIONS: [Action, string][] = [
+  ['a', 'A'],
+  ['b', 'B'],
+  ['l', 'L'],
+  ['r', 'R'],
+  ['start', 'Start'],
+  ['select', 'Select'],
+  ['up', 'Up'],
+  ['down', 'Down'],
+  ['left', 'Left'],
+  ['right', 'Right'],
+  ['save', 'Quick save state'],
+  ['load', 'Quick load state'],
+  ['slot', 'Next state slot'],
 ]
 
+const HOTKEYS = new Set<Action>(['save', 'load', 'slot'])
+/** Hotkeys that don't apply while linked (lockstep has one speed and no states). */
+export const SOLO_ONLY = HOTKEYS
+
 const KEY_NAMES: Record<string, string> = {
-  'up arrow': '↑',
-  'down arrow': '↓',
-  'left arrow': '←',
-  'right arrow': '→',
-  enter: 'Enter',
-  space: 'Space',
-  shift: 'Shift',
-  tab: 'Tab',
-  backspace: 'Backspace',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  Enter: 'Enter',
+  Space: 'Space',
+  ShiftLeft: 'Left Shift',
+  ShiftRight: 'Right Shift',
+  ControlLeft: 'Left Ctrl',
+  ControlRight: 'Right Ctrl',
+  AltLeft: 'Left Alt',
+  AltRight: 'Right Alt',
+  Tab: 'Tab',
+  Backspace: 'Backspace',
+  Backquote: '`',
+  Minus: '-',
+  Equal: '=',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Semicolon: ';',
+  Quote: "'",
+  Comma: ',',
+  Period: '.',
+  Slash: '/',
 }
 
 const PAD_NAMES: Record<string, string> = {
@@ -61,17 +82,26 @@ const PAD_NAMES: Record<string, string> = {
   DPAD_RIGHT: 'D-pad right',
 }
 
-export function keyLabel(key: string | null): string {
-  if (!key) return 'Not set'
-  return KEY_NAMES[key] ?? (key.length === 1 ? key.toUpperCase() : key)
+export function keyLabel(code: string | null): string {
+  if (!code) return 'Not set'
+  if (KEY_NAMES[code]) return KEY_NAMES[code]
+  const m = /^(?:Key|Digit|Numpad)(.+)$/.exec(code)
+  if (m) return code.startsWith('Numpad') ? `Numpad ${m[1]}` : m[1]
+  return code
 }
 
-export function legend(bindings: Binding[]): LegendRow[] {
+/** Keys the browser or the page needs; the remap refuses them. */
+export function canBind(code: string): boolean {
+  return !['Escape', 'F5', 'F11', 'F12', 'MetaLeft', 'MetaRight', 'Tab'].includes(code)
+}
+
+export function legend(bindings: Binding[], opts: { linked?: boolean } = {}): LegendRow[] {
   const byId = new Map(bindings.map((b) => [b.id, b]))
   return ACTIONS.flatMap(([id, action]) => {
     const b = byId.get(id)
+    if (opts.linked && SOLO_ONLY.has(id)) return []
     // An unbound hotkey isn't worth a row; an unbound game button is (the player needs to fix it).
-    if (!b?.key && !b?.pad && id >= 24) return []
-    return [{ action, key: keyLabel(b?.key ?? null), pad: b?.pad ? (PAD_NAMES[b.pad] ?? b.pad) : null }]
+    if (!b?.key && !b?.pad && HOTKEYS.has(id)) return []
+    return [{ id, action, key: keyLabel(b?.key ?? null), pad: b?.pad ? (PAD_NAMES[b.pad] ?? b.pad) : null }]
   })
 }

@@ -5,17 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Emulator</title>
   <!--
-    Pokémon Hub runs EmulatorJS (GPL-3.0, https://github.com/EmulatorJS/EmulatorJS)
-    unmodified, as its own program inside this iframe (ADR-009). The app talks to it
-    only through postMessage — see player.js.
+    Pokémon Hub runs mGBA (MPL-2.0, https://github.com/mgba-emu/mgba), unmodified,
+    built to WebAssembly with our glue (emulator/ in the repo; ADR-011). The app
+    talks to this page only through postMessage — see player.js.
   -->
   <style>
-    html, body { margin: 0; height: 100%; background: #000; }
-    #game { width: 100%; height: 100%; }
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    #screens { display: flex; height: 100%; align-items: center; justify-content: center; gap: 8px; }
+    canvas { height: 100%; max-width: 100%; aspect-ratio: 3 / 2; object-fit: contain; image-rendering: pixelated; outline: none; }
+    #screens.split canvas { height: auto; width: calc(50% - 4px); }
+    #message {
+      position: fixed; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 6px;
+      background: rgba(0, 0, 0, 0.7); color: #fff; font: 13px system-ui, sans-serif;
+    }
   </style>
 </head>
 <body>
-  <div id="game"></div>
+  <div id="screens"></div>
+  <div id="message" hidden></div>
+  <script src="core/mgba-hub.js"></script>
   <script src="player.js"></script>
 </body>
 </html>

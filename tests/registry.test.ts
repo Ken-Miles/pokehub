@@ -58,3 +58,50 @@ describe('reconcile (FR-20)', () => {
     expect(r.sightings.map((s) => s.fingerprint)).toEqual(['f2', 'f3'])
   })
 })
+
+describe('reconcile: link trades (FR-26)', () => {
+  const live = new Set(['A', 'B', 'C'])
+
+  it('moves a Pokémon from a slot in the same link session', () => {
+    const r = reconcile({ ...base, liveSlotIds: live, seen: [mon('f1')], existing: new Map([['f1', row('f1', 'B')]]), linkPartners: new Set(['B']) })
+    expect(r.linkClaims).toEqual([{ fingerprint: 'f1', fromSlotId: 'B' }])
+    expect(r.conflicts).toEqual([])
+  })
+
+  it('still flags a Pokémon from a slot outside the session', () => {
+    const r = reconcile({ ...base, liveSlotIds: live, seen: [mon('f1')], existing: new Map([['f1', row('f1', 'C')]]), linkPartners: new Set(['B']) })
+    expect(r.linkClaims).toEqual([])
+    expect(r.conflicts).toEqual([{ fingerprint: 'f1', reason: 'owned_by_other_slot', ownerSlotId: 'C' }])
+  })
+
+  it('never claims a Pokémon that appears twice in the save, even from a partner', () => {
+    const r = reconcile({
+      ...base,
+      liveSlotIds: live,
+      seen: [mon('f1', { box: 0 }), mon('f1', { box: 1 })],
+      existing: new Map([['f1', row('f1', 'B')]]),
+      linkPartners: new Set(['B']),
+    })
+    expect(r.linkClaims).toEqual([])
+    expect(r.conflicts.map((c) => c.reason)).toEqual(['duplicate_in_save', 'owned_by_other_slot'])
+  })
+
+  it('makes no link claims without partners (imports, restores, no session)', () => {
+    const r = reconcile({ ...base, liveSlotIds: live, seen: [mon('f1')], existing: new Map([['f1', row('f1', 'B')]]) })
+    expect(r.linkClaims).toEqual([])
+    expect(r.conflicts).toHaveLength(1)
+  })
+
+  it('keeps ordinary handling for Pokémon the slot owns or never saw', () => {
+    const r = reconcile({
+      ...base,
+      liveSlotIds: live,
+      seen: [mon('f1'), mon('f2')],
+      existing: new Map([['f1', row('f1', 'A')]]),
+      linkPartners: new Set(['B']),
+    })
+    expect(r.touches).toEqual(['f1'])
+    expect(r.inserts.map((p) => p.fingerprint)).toEqual(['f2'])
+    expect(r.linkClaims).toEqual([])
+  })
+})

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useState } from 'react'
 import { FileDrop } from '@/components/FileDrop'
 import { VerifyEmailBanner } from '@/components/VerifyEmailBanner'
-import { api, formatPlayTime } from '@/lib/client/api'
+import { api, formatPlayTime, formatSyncedAt } from '@/lib/client/api'
 import { inspectRom, rememberRom } from '@/lib/client/rom'
 import { romCheck, saveProblem } from '@/lib/client/save-sync'
 
@@ -89,6 +89,11 @@ function Slots() {
               {s.trainerName ? `${s.trainerName} · ID ${String(s.trainerId).padStart(5, '0')}` : 'Not saved yet'}
               {s.currentVersion && ` · ${formatPlayTime(s.currentVersion.playSeconds)}`}
             </div>
+            {s.currentVersion && (
+              <div className="text-xs text-muted" title={new Date(s.currentVersion.createdAt).toLocaleString()}>
+                Last synced {formatSyncedAt(s.currentVersion.createdAt)}
+              </div>
+            )}
             <div className="flex gap-3 pt-2 text-sm">
               <Link href={`/play/${s.id}`} className="rounded-md bg-accent px-3 py-1.5 font-medium text-white">
                 Play

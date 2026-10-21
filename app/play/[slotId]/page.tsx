@@ -17,14 +17,7 @@ export default async function PlayPage({ params }: { params: Promise<{ slotId: s
       <h1 className="text-2xl font-semibold">
         {game.name} <span className="text-muted">· {slot.trainerName ?? 'New game'}</span>
       </h1>
-      <Player
-        slotId={slot.id}
-        platform={slot.platform}
-        core={core}
-        gameCode={slot.gameCode}
-        gameName={game.name}
-        emulatorData={process.env.NEXT_PUBLIC_EMULATORJS_DATA ?? '/emulator/data/'}
-      />
+      <Player slotId={slot.id} platform={slot.platform} gameCode={slot.gameCode} gameName={game.name} />
     </div>
   )
 }

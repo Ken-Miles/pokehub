@@ -4,29 +4,30 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { FileDrop } from '@/components/FileDrop'
 import { forgetRom, inspectRom, rememberRom, rememberedRom } from '@/lib/client/rom'
-import { legend, type Binding } from '@/lib/client/controls'
+import { canBind, legend, type Action, type Binding } from '@/lib/client/controls'
+import { EmulatorFrame, FrameClock } from '@/lib/client/emulator'
+import { loadEmulatorBindings, saveEmulatorBindings } from '@/lib/client/emulator-controls'
 import { SaveSync, indexedDbQueue, romCheck, type PendingSave, type SyncStatus } from '@/lib/client/save-sync'
 import type { Platform } from '@/lib/games'
 
 type Phase = 'need-rom' | 'loading' | 'device-conflict' | 'playing' | 'stale' | 'locked' | 'error'
-
 interface Props {
   slotId: string
   platform: Platform
-  core: string
   gameCode: string
   gameName: string
-  emulatorData: string
 }
 
 /**
- * Hosts the emulator iframe (ADR-009) and keeps the slot's cloud save in sync
+ * Hosts the emulator iframe (ADR-011) and keeps the slot's cloud save in sync
  * (FR-08) through SaveSync: unsent saves wait in IndexedDB and are retried;
  * every upload names the version it was built on, and a 409 means this tab is
  * stale (another tab, a trade or a restore), so the emulator stops (ADR-006).
  */
-export function Player({ slotId, platform, core, gameCode, gameName, emulatorData }: Props) {
+export function Player({ slotId, platform, gameCode, gameName }: Props) {
   const frame = useRef<HTMLIFrameElement>(null)
+  const emu = useRef<EmulatorFrame | null>(null)
+  const clock = useRef<FrameClock | null>(null)
   const rom = useRef<ArrayBuffer | null>(null)
   const bootSave = useRef<ArrayBuffer | null>(null)
   const sync = useRef<SaveSync | null>(null)
@@ -36,14 +37,18 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
   const [error, setError] = useState('')
   const [remember, setRemember] = useState(true)
   const [bindings, setBindings] = useState<Binding[] | null>(null)
-  const [fastForward, setFastForward] = useState(false)
+  const [audioReady, setAudioReady] = useState(false)
+  const [muted, setMuted] = useState(false)
+  const [volume, setVolume] = useState(1)
+  const persistedBindings = useRef<string | null>(null)
+  const statusRef = useRef<SyncStatus['state']>('synced')
 
-  const send = (msg: object, transfer: Transferable[] = []) =>
-    frame.current?.contentWindow?.postMessage(msg, location.origin, transfer)
+  const send = (msg: object) => emu.current?.send(msg)
 
   // The cloud save moved on without this tab: pause, and drop save states made
   // before that change so none can be loaded and saved over it (ADR-016).
   const stop = useCallback((next: 'stale' | 'locked') => {
+    clock.current?.stop()
     send({ type: 'pause' })
     send({ type: 'clear-states' })
     sync.current?.halt(next === 'stale' ? 'conflict' : 'locked')
@@ -58,7 +63,9 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
       queue: indexedDbQueue,
       onStatus: (st) => {
         setStatus(st)
+        statusRef.current = st.state
         if (st.state === 'conflict' || st.state === 'locked') {
+          clock.current?.stop()
           send({ type: 'pause' })
           send({ type: 'clear-states' })
           setPhase((p) => (p === 'playing' ? (st.state === 'conflict' ? 'stale' : 'locked') : p))
@@ -121,27 +128,63 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
     }
   }
 
-  // Messages from the emulator iframe.
+  // The emulator iframe: boot it with the game and the cloud save, then run frames at the GBA's rate.
   useEffect(() => {
-    if (phase !== 'playing') return
-    const onMessage = (e: MessageEvent) => {
-      if (e.origin !== location.origin || e.source !== frame.current?.contentWindow) return
-      if (e.data?.type === 'ready' && rom.current) {
-        const romCopy = rom.current.slice(0)
-        const saveCopy = bootSave.current ? bootSave.current.slice(0) : null
-        send({ type: 'boot', rom: romCopy, save: saveCopy, core, data: emulatorData }, saveCopy ? [romCopy, saveCopy] : [romCopy])
-      } else if (e.data?.type === 'save') {
-        void sync.current?.submit(e.data.bytes)
-      } else if (e.data?.type === 'controls') {
-        setBindings(e.data.keys)
-        setFastForward(!!e.data.fastForward)
-      } else if (e.data?.type === 'unchanged') {
-        void sync.current?.retryNow()
+    if (phase !== 'playing' || !frame.current) return
+    const e = new EmulatorFrame(frame.current)
+    emu.current = e
+    const c = new FrameClock(async () => {
+      await e.runFrames(1)
+      return true
+    })
+    clock.current = c
+    e.on('ready', () => {
+      void loadEmulatorBindings().catch(() => ({})).then((saved) => {
+        if (rom.current) e.boot({ games: [{ rom: rom.current, save: bootSave.current }], local: [0], bindings: saved, rtc: { mode: 'wall' } })
+      })
+    })
+    e.on('started', () => c.start())
+    e.on('error', (m) => {
+      c.stop()
+      setError(String(m.message))
+      setPhase('error')
+    })
+    e.on('save', (m) => void sync.current?.submit(m.bytes as ArrayBuffer))
+    e.on('unchanged', () => void sync.current?.retryNow())
+    e.on('controls', (m) => {
+      const nextBindings = m.keys as Binding[]
+      setBindings(nextBindings)
+      const signature = JSON.stringify(nextBindings.map(({ id, key }) => [id, key]))
+      if (persistedBindings.current !== signature) {
+        persistedBindings.current = signature
+        void saveEmulatorBindings(nextBindings).catch(() => {
+          persistedBindings.current = null
+          setError('Could not save your emulator controls to your account.')
+        })
+      }
+      setMuted(!!m.muted)
+      setVolume(typeof m.volume === 'number' ? m.volume : 1)
+    })
+    e.on('audio', (m) => setAudioReady(m.state === 'running'))
+    // Hidden tab: stop running (and stop sound) until it's back.
+    const onVisible = () => {
+      if (document.hidden) {
+        c.stop()
+        e.send({ type: 'pause' })
+      } else if (sync.current && !['conflict', 'locked'].includes(statusRef.current)) {
+        e.send({ type: 'resume' })
+        c.start()
       }
     }
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [phase, core, emulatorData])
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      c.stop()
+      e.dispose()
+      emu.current = null
+      clock.current = null
+    }
+  }, [phase])
 
   // Another tab, a restore or (later) a trade moved this slot on: stop before we overwrite it.
   useEffect(() => {
@@ -199,15 +242,6 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
               Sync now
             </button>
           )}
-          {phase === 'playing' && bindings && (
-            <button
-              aria-pressed={fastForward}
-              className={fastForward ? 'rounded-md bg-accent px-2 py-0.5 font-medium text-white' : 'underline'}
-              onClick={() => send({ type: 'fast-forward', on: !fastForward })}
-            >
-              Fast-forward {fastForward ? 'on' : 'off'}
-            </button>
-          )}
         </div>
         <button className="text-muted underline" onClick={() => forgetRom(gameCode).then(() => location.reload())}>
           Forget game file on this device
@@ -233,32 +267,106 @@ export function Player({ slotId, platform, core, gameCode, gameName, emulatorDat
           className="aspect-[3/2] w-full rounded-xl border border-line bg-black"
         />
       )}
-      {phase === 'playing' && bindings && <ControlsPanel bindings={bindings} />}
+      {phase === 'playing' && bindings && (
+        <ControlsPanel
+          bindings={bindings}
+          onBind={(action, code) => {
+            send({ type: 'bind', action, code })
+            frame.current?.focus()
+          }}
+          onReset={() => send({ type: 'reset-bindings' })}
+          audioReady={audioReady}
+          muted={muted}
+          volume={volume}
+          onEnableAudio={() => {
+            const child = frame.current?.contentWindow as (Window & { enableHubAudio?: () => void }) | null
+            if (child?.enableHubAudio) child.enableHubAudio()
+            else send({ type: 'enable-audio' })
+          }}
+          onMute={() => { const next = !muted; setMuted(next); send({ type: 'audio-settings', muted: next, volume }) }}
+          onVolume={(value) => { setVolume(value); send({ type: 'audio-settings', muted, volume: value }) }}
+          onFullscreen={() => void frame.current?.requestFullscreen()}
+        />
+      )}
     </div>
   )
 }
 
-/** FR-06: current keys (remaps included) and where to change them. */
-function ControlsPanel({ bindings }: { bindings: Binding[] }) {
-  const rows = legend(bindings)
+/** FR-06: current keys (remaps included); click a key to change it. */
+export function ControlsPanel({
+  bindings,
+  onBind,
+  onReset,
+  linked = false,
+  audioReady = true,
+  muted = false,
+  volume = 1,
+  onEnableAudio,
+  onMute,
+  onVolume,
+  onFullscreen,
+}: {
+  bindings: Binding[]
+  onBind: (action: Action, code: string) => void
+  onReset: () => void
+  linked?: boolean
+  audioReady?: boolean
+  muted?: boolean
+  volume?: number
+  onEnableAudio?: () => void
+  onMute?: () => void
+  onVolume?: (value: number) => void
+  onFullscreen?: () => void
+}) {
+  const [listening, setListening] = useState<Action | null>(null)
+  const rows = legend(bindings, { linked })
+
+  useEffect(() => {
+    if (!listening) return
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault()
+      if (e.code !== 'Escape' && canBind(e.code)) onBind(listening, e.code)
+      setListening(null)
+    }
+    window.addEventListener('keydown', onKey, { once: true })
+    return () => window.removeEventListener('keydown', onKey)
+  }, [listening, onBind])
+
   return (
     <details className="rounded-xl border border-line bg-card p-4 text-sm" open>
       <summary className="cursor-pointer font-semibold">Controls</summary>
+      <div className="mt-3 flex flex-wrap items-center gap-3 border-b border-line pb-3">
+        <span className="font-medium">Settings</span>
+        {!audioReady && <button className="rounded border border-line px-2 py-1" onClick={onEnableAudio}>Enable sound</button>}
+        <button className="rounded border border-line px-2 py-1" aria-pressed={muted} onClick={onMute}>{muted ? 'Unmute' : 'Mute'}</button>
+        <label className="flex items-center gap-2 text-muted">Volume
+          <input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => onVolume?.(Number(e.target.value))} />
+        </label>
+        <button className="rounded border border-line px-2 py-1" onClick={onFullscreen}>Fullscreen</button>
+      </div>
       <div className="mt-3 grid gap-x-8 gap-y-1 sm:grid-cols-2">
         {rows.map((r) => (
-          <div key={r.action} className="flex justify-between gap-4 border-b border-line py-1">
+          <div key={r.id} className="flex items-center justify-between gap-4 border-b border-line py-1">
             <span className="text-muted">{r.action}</span>
-            <span>
-              <kbd className="font-mono">{r.key}</kbd>
-              {r.pad && <span className="ml-2 text-muted">· {r.pad}</span>}
-            </span>
+            <button
+              className="rounded border border-line px-1.5 font-mono"
+              aria-label={`Change the key for ${r.action}`}
+              onClick={() => setListening(r.id)}
+            >
+              {listening === r.id ? 'Press a key…' : r.key}
+            </button>
           </div>
         ))}
       </div>
       <p className="mt-3 text-muted">
-        Gamepads work as soon as you press a button. Change keys or gamepad buttons under <b>Control Settings</b> (the
-        gamepad icon in the emulator&apos;s bar); fullscreen and volume are there too. Save states stay in this tab only:
-        they&apos;re gone when you reload, and cleared if your cloud save changes somewhere else.
+        Click a key to change it (Esc cancels); your key bindings are saved to your account.{' '}
+        <button className="underline" onClick={onReset}>
+          Reset to defaults
+        </button>
+        . Gamepads work as soon as you press a button.{' '}
+        {linked
+          ? 'While linked, player 1 uses the keyboard and the others use gamepads in order; save states are off.'
+          : "Save states stay in this tab only: they're gone when you reload, and cleared if your cloud save changes somewhere else."}
       </p>
     </details>
   )
