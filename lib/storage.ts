@@ -1,6 +1,7 @@
 import { gzipSync, gunzipSync } from 'zlib'
 import {
   CreateBucketCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   PutObjectCommand,
@@ -10,8 +11,9 @@ import { env } from '@/lib/env'
 
 /**
  * Save blobs in S3-compatible storage (R2 in prod, SeaweedFS in dev).
- * Keys are content-addressed and never overwritten (NFR-07). Game files never
- * come through here (NFR-01).
+ * Save-version keys are content-addressed and never overwritten (NFR-07);
+ * tester drop-box files live under `dropbox/` and can be deleted (ADR-015).
+ * Game files never come through here (NFR-01).
  */
 let client: S3Client | undefined
 let bucketReady: Promise<void> | undefined
@@ -61,4 +63,16 @@ export async function getSave(key: string): Promise<Uint8Array> {
   const res = await s3().send(new GetObjectCommand({ Bucket: env().S3_BUCKET, Key: key }))
   const body = await res.Body!.transformToByteArray()
   return new Uint8Array(gunzipSync(body))
+}
+
+/** FR-32: drop-box files are kept apart from save versions, one key per upload. */
+export function dropKey(uploaderId: string, id: string): string {
+  return `dropbox/${uploaderId}/${id}.bin.gz`
+}
+
+/** Drop-box files only — save-version blobs are never deleted (NFR-07). */
+export async function deleteDropBlob(key: string): Promise<void> {
+  if (!key.startsWith('dropbox/')) throw new Error(`refusing to delete ${key}: not a drop-box file`)
+  await ensureBucket()
+  await s3().send(new DeleteObjectCommand({ Bucket: env().S3_BUCKET, Key: key }))
 }

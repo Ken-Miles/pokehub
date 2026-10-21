@@ -54,17 +54,18 @@ export const authOptions: NextAuthOptions = {
 
         if (blocked) throw new Error(blocked)
         if (!ok || !user) return null
-        return { id: user.id, name: user.username, username: user.username, role: user.role, tokenVersion: user.tokenVersion }
+        return { id: user.id, name: user.username, username: user.username, role: user.role, tester: user.isTester, tokenVersion: user.tokenVersion }
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        const u = user as unknown as { id: string; username: string; role: string; tokenVersion: number }
+        const u = user as unknown as { id: string; username: string; role: string; tester: boolean; tokenVersion: number }
         token.sub = u.id
         token.username = u.username
         token.role = u.role
+        token.tester = u.tester
         token.tokenVersion = u.tokenVersion
       }
       return token
@@ -74,6 +75,7 @@ export const authOptions: NextAuthOptions = {
         id: token.sub!,
         username: token.username!,
         role: token.role!,
+        tester: token.tester ?? false,
         tokenVersion: token.tokenVersion ?? 0,
       }
       return session

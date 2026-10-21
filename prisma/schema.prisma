@@ -101,6 +101,7 @@ model User {
   friendCode       String     @unique // 0000-0000-0000
   tokenVersion     Int        @default(0) // bump = sign out everywhere
   acceptUnverified Boolean    @default(false) // ADR-008
+  isTester         Boolean    @default(false) // FR-32: may use the save drop box; set by an admin
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
@@ -113,6 +114,7 @@ model User {
   blockedBy       Block[]      @relation("blocked")
   reportsFiled    Report[]     @relation("reporter")
   reportsAgainst  Report[]     @relation("reportTarget")
+  dropFiles       DropFile[]
 
   @@map("users")
 }
@@ -337,6 +339,31 @@ model Report {
 
   @@index([status, createdAt])
   @@map("reports")
+}
+
+/// FR-32 / ADR-015: a file a tester dropped for the owner. Not a save version:
+/// never in a slot, the registry or a trade, and kept even if the save service
+/// can't read it. The parse fields are for display only.
+model DropFile {
+  id          String   @id @default(cuid())
+  uploaderId  String
+  uploader    User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  fileName    String
+  size        Int
+  sha256      String
+  storageKey  String   @unique
+  note        String?
+  readable    Boolean
+  parseError  String? // save service error code when not readable
+  generation  Int?
+  gameVersion String? // version the save reports, e.g. E, OR
+  trainerName String?
+  trainerId   Int?
+  createdAt   DateTime @default(now())
+
+  @@index([uploaderId, createdAt])
+  @@index([createdAt])
+  @@map("drop_files")
 }
 
 /// Append-only (FR-24): a trigger in the initial migration rejects UPDATE/DELETE.

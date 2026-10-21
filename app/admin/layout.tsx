@@ -21,6 +21,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin/slots" className="underline">
             Game slots
           </Link>
+          <Link href="/admin/dropbox" className="underline">
+            Drop box
+          </Link>
         </nav>
         <span className="text-sm text-muted">
           {user.username} · {user.role.toLowerCase()}

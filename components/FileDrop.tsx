@@ -5,7 +5,8 @@ import { clsx } from 'clsx'
 
 /**
  * File picker that also takes drag-and-drop (FR-04). Only hands the File to
- * `onFile`; reading it is the caller's job, and game files never leave the browser.
+ * `onFile` (or every file to `onFiles` when `multiple`, FR-32); reading it is
+ * the caller's job, and game files never leave the browser.
  */
 export function FileDrop({
   label,
@@ -13,17 +14,27 @@ export function FileDrop({
   accept,
   file,
   onFile,
+  onFiles,
+  multiple,
   disabled,
 }: {
   label: string
   hint?: string
   accept: string
   file?: File | null
-  onFile: (file: File) => void
+  onFile?: (file: File) => void
+  onFiles?: (files: File[]) => void
+  multiple?: boolean
   disabled?: boolean
 }) {
   const input = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
+  const take = (list: FileList | null | undefined) => {
+    const files = Array.from(list ?? [])
+    if (!files.length) return
+    if (onFiles) onFiles(multiple ? files : files.slice(0, 1))
+    else onFile?.(files[0])
+  }
 
   return (
     <div
@@ -41,8 +52,7 @@ export function FileDrop({
       onDrop={(e) => {
         e.preventDefault()
         setOver(false)
-        const dropped = e.dataTransfer.files?.[0]
-        if (dropped && !disabled) onFile(dropped)
+        if (!disabled) take(e.dataTransfer.files)
       }}
       className={clsx(
         'cursor-pointer space-y-1 rounded-lg border-2 border-dashed px-4 py-5 text-center text-sm transition-colors',
@@ -57,10 +67,10 @@ export function FileDrop({
         type="file"
         accept={accept}
         hidden
+        multiple={multiple}
         disabled={disabled}
         onChange={(e) => {
-          const picked = e.target.files?.[0]
-          if (picked) onFile(picked)
+          take(e.target.files)
           e.target.value = '' // picking the same file again still fires
         }}
       />

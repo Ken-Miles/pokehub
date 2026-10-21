@@ -1,4 +1,7 @@
 import { PLATFORMS, isAcceptedSaveSize, type Platform } from '@/lib/games'
+import { hasGbaRomHeader } from '@/lib/rom-header'
+
+export { hasGbaRomHeader }
 
 /**
  * Browser side of cloud saves (FR-08). Framework-free so it is unit-tested
@@ -54,18 +57,6 @@ export function saveProblem(platform: Platform, bytes: ArrayBuffer): string | nu
   if (!isAcceptedSaveSize(platform, bytes.byteLength)) return `That isn't a ${name} save file, so it wasn't uploaded.`
   if (hasGbaRomHeader(new Uint8Array(bytes))) return 'That is a game file, not a save. Game files never leave your device.'
   return null
-}
-
-/**
- * A real GBA header: branch opcode at 0x03, fixed byte 0x96 at 0xB2 and a
- * matching header checksum at 0xBD. Random save data passes all three about
- * once in 10^10, so real saves aren't refused.
- */
-export function hasGbaRomHeader(b: Uint8Array): boolean {
-  if (b.length < 0xc0 || b[0x03] !== 0xea || b[0xb2] !== 0x96) return false
-  let chk = 0
-  for (let i = 0xa0; i <= 0xbc; i++) chk = (chk - b[i]) & 0xff
-  return ((chk - 0x19) & 0xff) === b[0xbd]
 }
 
 /** The only thing sent about a game file (FR-05): which game, and its hash. */

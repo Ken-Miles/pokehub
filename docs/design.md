@@ -1,8 +1,8 @@
 # Pokémon Hub — design summary
 
 The full design lives in the Obsidian vault **Pokemon Hub**
-(`~/Documents/obsidian/Pokemon Hub`): one note per requirement (FR-01…FR-31,
-NFR-01…NFR-13), component notes, phases, and ADR-001…ADR-014. This file is the
+(`~/Documents/obsidian/Pokemon Hub`): one note per requirement (FR-01…FR-32,
+NFR-01…NFR-13), component notes, phases, and ADR-001…ADR-015. This file is the
 short version for anyone reading the code.
 
 ## What it is
@@ -40,6 +40,11 @@ game file — only save files (ADR-001).
    and the locks. Sweeper fails trades stuck in `COMMITTING` > 2 min.
 7. **Imported saves start unverified** (ADR-008).
 8. **Audit log is append-only** (FR-24) — DB trigger.
+9. **Tester drop-box files are not save versions** (FR-32, ADR-015, proposed).
+   Testers upload save-sized files for the owner to download; same size cap and
+   ROM-header refusal, kept even if unparseable, never in slots, registry or trades.
+   `lib/dropbox.ts` never calls `ingestSave`; blobs live under `dropbox/` and are
+   the only ones that can be deleted (`lib/storage.ts#deleteDropBlob`).
 
 ## Games (ADR-013)
 Every Gen 3–7 game is data in `lib/games.ts`: platform (GBA / NDS / N3DS),
