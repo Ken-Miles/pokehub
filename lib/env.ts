@@ -16,6 +16,8 @@ const schema = z.object({
   SAVE_SERVICE_SOCKET: z.string().optional(),
   // Proxies in front of the app that append to X-Forwarded-For (lib/client-ip.ts).
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+  // FR-36: the bot host's key (ADR-023). Unset = no bot can act at all.
+  BOT_HOST_SECRET: z.string().min(32).optional(),
   ALLOW_UNLISTED_ROMS: z
     .enum(['true', 'false'])
     .default('false')

@@ -22,6 +22,6 @@ export function checkRom(platform: Platform, code: string, sha1: string): RomVer
 export function romRejectionMessage(reason: string, platform: Platform): string {
   const info = PLATFORMS[platform]
   if (reason === 'not_yet_supported') return `${info.name} games are planned for ${info.phase}. Not playable yet.`
-  if (reason === 'unsupported_game') return "That game isn't supported. Supported now: Ruby, Sapphire, Emerald, FireRed, LeafGreen."
+  if (reason === 'unsupported_game') return "That game isn't supported. Supported now: Red, Blue, Yellow, Ruby, Sapphire, Emerald, FireRed, LeafGreen."
   return "That doesn't look like an unmodified copy of the game. ROM hacks aren't supported."
 }

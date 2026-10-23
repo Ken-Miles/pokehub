@@ -8,6 +8,7 @@ import {
   readRomHeader,
   saveFamilyMatchesGame,
 } from '@/lib/games'
+import { fakeGbHeader } from './helpers/client-sync'
 
 function fakeHeader(code: string, title = 'POKEMON EMER'): Uint8Array {
   const b = new Uint8Array(0x200)
@@ -31,7 +32,28 @@ describe('readGbaHeader', () => {
   })
 })
 
+describe('readGbHeader (ADR-019)', () => {
+  it('guesses the Gen 1 code from the title and the Japan/overseas byte', () => {
+    expect(readRomHeader(fakeGbHeader('POKEMON RED'))).toEqual({ platform: 'GB', title: 'POKEMON RED', code: 'APAO' })
+    expect(readRomHeader(fakeGbHeader('POKEMON GREEN', true))?.code).toBe('APGJ')
+    expect(readRomHeader(fakeGbHeader('POKEMON YELLOW'))?.code).toBe('APSO')
+  })
+  it('leaves the code empty for other titles (the SHA-1 decides)', () => {
+    expect(readRomHeader(fakeGbHeader('TETRIS'))).toMatchObject({ platform: 'GB', code: '' })
+  })
+  it('rejects a broken header checksum', () => {
+    const b = fakeGbHeader('POKEMON RED')
+    b[0x14d] ^= 1
+    expect(readRomHeader(b)).toBeNull()
+  })
+})
+
 describe('identifyGame', () => {
+  it('knows Gen 1 on Game Boy, playable, Japanese apart from the rest', () => {
+    expect(['APAO', 'APEO', 'APSO', 'APGJ'].map((c) => identifyGame('GB', c)?.name)).toEqual(['Red', 'Blue', 'Yellow', 'Green'])
+    expect(identifyGame('GB', 'APAJ')).toMatchObject({ generation: 1, family: 'RBY', playable: true, language: 'J' })
+    expect(isAcceptedSaveSize('GB', 0x8000)).toBe(true)
+  })
   it('knows all five Gen 3 games', () => {
     expect(['AXVE', 'AXPE', 'BPEE', 'BPRE', 'BPGE'].map((c) => identifyGame('GBA', c)?.name)).toEqual([
       'Ruby',

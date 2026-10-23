@@ -54,4 +54,4 @@ export function parseDat(xml: string): Dat {
  * and event carts, debug/prototype/demo builds, and the Nintendo Switch Online
  * re-releases (patched builds; not cartridge games).
  */
-export const EXCLUDED_DUMP = /\((Pirate|Kiosk|Debug Version|Proto|Demo|Beta|Switch)\)/i
+export const EXCLUDED_DUMP = /\((Pirate|Kiosk|Debug|Debug Version|Proto|Demo|Beta|Switch)\)/i

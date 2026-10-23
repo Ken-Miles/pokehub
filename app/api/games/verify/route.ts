@@ -5,7 +5,7 @@ import { checkRom, romRejectionMessage } from '@/lib/rom-allowlist'
 import { requireUser } from '@/lib/session'
 
 const body = z.object({
-  platform: z.enum(['GBA', 'NDS', 'N3DS']).default('GBA'),
+  platform: z.enum(['GB', 'GBA', 'NDS', 'N3DS']).default('GBA'),
   code: z.string().length(4),
   sha1: z.string().regex(/^[0-9a-f]{40}$/i),
 })

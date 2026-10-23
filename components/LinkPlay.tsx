@@ -7,7 +7,9 @@ import { EmulatorFrame, FrameClock, type CoreBuild } from '@/lib/client/emulator
 import { inspectRom, rememberRom, rememberedRom } from '@/lib/client/rom'
 import { SaveSync, indexedDbQueue, romCheck, type SyncStatus } from '@/lib/client/save-sync'
 import type { Binding } from '@/lib/client/controls'
-import { DesyncCheck, HASH_EVERY, Lockstep } from '@/lib/client/lockstep'
+import { siteRoundTrip } from '@/lib/client/api'
+import { DesyncCheck, HASH_EVERY, Lockstep, delayForRoundTrip } from '@/lib/client/lockstep'
+import { PeerLinks } from '@/lib/client/peer-link'
 import { ControlsPanel } from '@/components/Player'
 import { loadEmulatorBindings, saveEmulatorBindings } from '@/lib/client/emulator-controls'
 import type { Platform } from '@/lib/games'
@@ -79,8 +81,18 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
   const pendingSaves = useRef(new Map<number, Promise<void>>())
   const launched = useRef(false)
   const socket = useRef<Socket | null>(null)
+  const links = useRef<PeerLinks | null>(null)
   const lockstep = useRef<Lockstep | null>(null)
   const desync = useRef(new DesyncCheck())
+
+  // A save (maybe a trade's) still uploading: ask before the tab closes.
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (pendingSaves.current.size) e.preventDefault()
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [])
 
   const refresh = useCallback(async () => {
     const [slotResult, buildInfo] = await Promise.all([
@@ -123,6 +135,7 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
 
   useEffect(() => () => {
     clock.current?.stop()
+    links.current?.close()
     emu.current?.dispose()
     for (const sync of syncs.current.values()) sync.dispose()
   }, [])
@@ -190,7 +203,10 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
     if (!sessionId) return
     setBusy(true); setError('')
     try {
-      await json(`/api/link/${sessionId}/start`, { method: 'POST', body: JSON.stringify({ inputDelay: 1 }) })
+      // Inputs go sender → relay → receiver, so a peer's trip is about twice ours.
+      // shortcut: assumes every peer is as far from the site as the host; have each seat report its own when ready if that hurts.
+      const inputDelay = view?.mode === 'NETWORK' ? delayForRoundTrip(2 * (await siteRoundTrip())) : 1
+      await json(`/api/link/${sessionId}/start`, { method: 'POST', body: JSON.stringify({ inputDelay }) })
       if (view?.mode === 'SAME_DEVICE') setLaunchRequested(true)
       await refresh()
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
@@ -235,15 +251,14 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
       }
     }
     if (view.mode === 'NETWORK' && localSeats.length === 0) throw new Error('This account has no game in the session.')
-    const e = new EmulatorFrame(frame.current)
-    emu.current = e
+    const target = frame.current
     let c: FrameClock
     if (view.mode === 'NETWORK') {
       const schedule = new Lockstep(games.length, localSeats, Math.max(2, view.inputDelay ?? 3))
       lockstep.current = schedule
       const peer = io({ path: '/socket.io' })
       socket.current = peer
-      peer.on('link:msg', (msg: { t?: string; p?: number; f?: number; k?: number; h?: number }) => {
+      const onMsg = (msg: { t?: string; p?: number; f?: number; k?: number; h?: number }) => {
         if (msg.t === 'i' && Number.isInteger(msg.p) && Number.isInteger(msg.f) && Number.isInteger(msg.k))
           schedule.addRemote({ p: msg.p!, f: msg.f!, k: msg.k! })
         if (msg.t === 'h' && Number.isInteger(msg.p) && Number.isInteger(msg.f) && Number.isInteger(msg.h)) {
@@ -254,13 +269,22 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
             void json(`/api/link/${sessionId}?reason=desync`, { method: 'DELETE' }).catch(() => undefined)
           }
         }
+      }
+      // One browser per other player's account.
+      const others = new Set(view.seats.filter((s) => !s.mine).map((s) => s.username)).size
+      const direct = new PeerLinks(others, (s) => peer.emit('link:signal', sessionId, s), (m) => peer.emit('link:msg', sessionId, m), onMsg)
+      links.current = direct
+      peer.on('link:msg', onMsg)
+      peer.on('link:signal', (m: { seats?: number[]; data?: unknown }) => {
+        void direct.onSignal(m?.data, Array.isArray(m?.seats) ? m.seats : []).catch(() => undefined)
       })
       peer.on('link:go', () => c.start())
-      peer.on('link:peer-left', () => { c.stop(); setError('A player disconnected, so the link cable was cut.') })
+      peer.on('link:peer-left', () => { c.stop(); direct.close(); setError('A player disconnected, so the link cable was cut.') })
       const joined = await new Promise<boolean>((resolve) => {
         peer.emit('link:join', sessionId, (result: { ok: boolean }) => resolve(!!result?.ok))
       })
       if (!joined) { peer.disconnect(); throw new Error('Could not join the link relay. Reload the session and try again.') }
+      direct.hello()
       c = new FrameClock(async () => {
         const inputs = schedule.take()
         if (!inputs) return false
@@ -268,13 +292,14 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
         const result = await e.runFrames(1, inputs, targetFrame % HASH_EVERY === 0)
         result.local.forEach((keys, index) => {
           const msg = schedule.addLocal(localSeats[index], keys)
-          peer.emit('link:msg', sessionId, { t: 'i', ...msg })
+          direct.send({ t: 'i', ...msg })
         })
         if (result.hash !== undefined && targetFrame % HASH_EVERY === 0) {
           const mismatch = desync.current.local(targetFrame, result.hash)
-          peer.emit('link:msg', sessionId, { t: 'h', p: localSeats[0], f: targetFrame, h: result.hash })
+          direct.send({ t: 'h', p: localSeats[0], f: targetFrame, h: result.hash })
           if (mismatch !== null) {
             setError(`The linked games fell out of sync at frame ${mismatch}. The cable was cut.`)
+            direct.close()
             peer.disconnect()
             void json(`/api/link/${sessionId}?reason=desync`, { method: 'DELETE' }).catch(() => undefined)
           }
@@ -284,10 +309,14 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
     } else {
       c = new FrameClock(async () => { await e.runFrames(1); return true })
     }
+    // Only now: the channel pings the iframe at once, and its "ready" reply must find the handler below.
+    // Created before the relay join above, that reply arrived while we awaited and was lost.
+    const e = new EmulatorFrame(target)
+    emu.current = e
     clock.current = c
     e.on('ready', () => {
       void loadEmulatorBindings().catch(() => ({})).then((saved) => {
-        e.boot({ games, local: localSeats, bindings: saved, rtc: { mode: 'fixed', epochMs: view.rtcEpochMs ?? Date.now() } })
+        e.boot({ platform: 'GBA', games, local: localSeats, bindings: saved, rtc: { mode: 'fixed', epochMs: view.rtcEpochMs ?? Date.now() } })
       })
     })
     e.on('started', () => {
@@ -347,10 +376,13 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
       await flush
     }
     await Promise.all(pendingSaves.current.values())
+    // End first: the relay treats a dropped socket as "disconnected" and would record that instead.
+    try { await json(`/api/link/${sessionId}`, { method: 'DELETE' }) } catch { /* session may already have ended */ }
+    links.current?.close()
+    links.current = null
     socket.current?.disconnect()
     socket.current = null
     for (const sync of syncs.current.values()) { await sync.idle(); sync.dispose() }
-    try { await json(`/api/link/${sessionId}`, { method: 'DELETE' }) } catch { /* session may already have ended */ }
     setPlaying(false)
     await refresh()
   }

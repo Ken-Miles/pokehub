@@ -22,7 +22,7 @@ export const GET = route(async () => {
 })
 
 const createBody = z.object({
-  platform: z.enum(['GBA', 'NDS', 'N3DS']).default('GBA'),
+  platform: z.enum(['GB', 'GBA', 'NDS', 'N3DS']).default('GBA'),
   code: z.string().min(1).max(4),
   sha1: z.string().regex(/^[0-9a-f]{40}$/i),
   origin: z.enum(['NEW', 'IMPORTED']),

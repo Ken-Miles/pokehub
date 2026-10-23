@@ -105,6 +105,50 @@ describe.skipIf(!existsSync(CORE))('bot host (npm run emulator:build)', () => {
     expect(JSON.stringify(emitted).length).toBeLessThan(512)
   })
 
+  it('plays the admin\'s buttons and holds its commands while an admin has control', async () => {
+    const { Bot } = await import('@/bots/bot')
+    const { Site } = await import('@/bots/site')
+    const games = mkdtempSync(join(tmpdir(), 'bot-games-'))
+    writeFileSync(join(games, 'test.gba'), readFileSync(join(process.cwd(), 'tests/fixtures/link-test.gba')))
+    const handlers: Record<string, (...a: unknown[]) => void> = {}
+    class FakeSite extends Site {
+      async raw(path: string) {
+        if (path === '/api/slots') return Response.json({ slots: [{ id: 's1', slotNumber: 1, platform: 'GBA', gameCode: 'ZHLE', origin: 'NEW', currentVersionId: null }] })
+        if (path.endsWith('/saves/current')) return new Response(null, { status: 204, headers: { 'x-version-id': 'none' } })
+        return Response.json({ versionId: 'v1' })
+      }
+      socket() {
+        const fake = { on: (e: string, h: (...a: unknown[]) => void) => ((handlers[e] = h), fake), emit() {}, disconnect() {} }
+        return fake as unknown as Socket
+      }
+    }
+    const bot = new Bot('bot5', new FakeSite('http://site.test', 'x'.repeat(32), 'bot5'), games)
+    await bot.start()
+    const keys: number[] = []
+    const frame = bot.gba!.frame.bind(bot.gba!)
+    bot.gba!.frame = (k: number) => (keys.push(k), frame(k))
+
+    handlers['bot:control']({ by: 'admin' })
+    handlers['bot:keys'](0x41) // A + Up
+    let done = false
+    const command = bot.press('B').then(() => (done = true))
+    const at = bot.frames
+    while (bot.frames < at + 30) await new Promise((r) => setTimeout(r, 20))
+    expect(done).toBe(false) // the command waits
+    expect(keys.at(-1)).toBe(0x41) // the game sees the admin's buttons, not the command's B
+    expect(bot.status).toContain('admin has control')
+    handlers['bot:keys'](0x41 | 8) // a tap of Start, let go before the next frame
+    handlers['bot:keys'](0x41)
+    const tapAt = keys.length
+    while (keys.length < tapAt + 2) await new Promise((r) => setTimeout(r, 5))
+    expect(keys.slice(tapAt)).toEqual([0x49, 0x41]) // the game saw it for one frame
+
+    handlers['bot:control']({ by: null })
+    await command
+    expect(keys).toContain(2) // B went in once control came back
+    await bot.stop()
+  })
+
   it("carries a wireless adapter's messages between two bots' games (FR-35)", async () => {
     const { Gba, KEY } = await import('@/bots/core')
     // The homebrew adapter test program (no game data): seat 0 hosts, seat 1 holds A at power-on and joins.
@@ -128,5 +172,100 @@ describe.skipIf(!existsSync(CORE))('bot host (npm run emulator:build)', () => {
     expect([word(0, 8), word(1, 8)]).toEqual([3, 3]) // both finished
     expect([word(0, 12), word(1, 12)]).toEqual([64, 64]) // every packet arrived, both ways
     expect(sides[0].airTrace()).toContain('command 0x3d') // the stop the program ends with
+  })
+})
+
+describe('watching bots from /admin/bots', () => {
+  const users: Record<string, { username: string; role: string; status: string }> = {
+    admin: { username: 'admin', role: 'ADMIN', status: 'ACTIVE' },
+    root: { username: 'root', role: 'ADMIN', status: 'ACTIVE' },
+    alice: { username: 'alice', role: 'USER', status: 'ACTIVE' },
+  }
+  const audited: { action: string; targetId: string }[] = []
+  afterEach(() => {
+    vi.doUnmock('@/lib/db')
+    vi.doUnmock('@/lib/audit')
+  })
+
+  it('streams only while an admin watches, and only to admins', async () => {
+    vi.resetModules()
+    vi.doMock('@/lib/db', () => ({ prisma: { user: { findUnique: async ({ where }: { where: { id: string } }) => users[where.id] ?? null } } }))
+    vi.doMock('@/lib/audit', () => ({ audit: async (e: { action: string; targetId: string }) => void audited.push(e) }))
+    const { attachBotWatch, screenOk, SCREEN_MAX_BYTES } = await import('@/lib/bot-watch')
+    const { createServer } = await import('http')
+    const { Server } = await import('socket.io')
+    const { io: connect } = await import('socket.io-client')
+
+    expect(screenOk({ png: Buffer.from([1]), status: 'on' })).toBe(true)
+    expect(screenOk({ png: Buffer.alloc(SCREEN_MAX_BYTES + 1), status: 'on' })).toBe(false)
+    expect(screenOk({ png: 'not bytes', status: 'on' })).toBe(false)
+    expect(screenOk({ png: Buffer.from([1]), status: 'x'.repeat(201) })).toBe(false)
+
+    const http = createServer()
+    const server = new Server(http)
+    // Stands in for server/main.ts's auth: who each socket is.
+    server.use((socket, next) => {
+      const a = socket.handshake.auth as { user: string; bot?: string }
+      socket.data.userId = a.user
+      socket.data.bot = a.bot
+      next()
+    })
+    attachBotWatch(server)
+    await new Promise<void>((r) => http.listen(0, r))
+    const url = `http://localhost:${(http.address() as { port: number }).port}`
+    const open = (auth: object) => connect(url, { transports: ['websocket'], auth })
+    const next = <T>(s: Socket, event: string) => new Promise<T>((r) => s.once(event, r))
+    const watch = (s: Socket, on: boolean) => new Promise<{ ok: boolean }>((r) => s.emit('bots:watch', on, r))
+
+    const bot = open({ user: 'b5', bot: 'bot5' })
+    expect(await next(bot, 'bots:watch')).toBe(false)
+    const alice = open({ user: 'alice' })
+    const admin = open({ user: 'admin' })
+    const aliceSaw: unknown[] = []
+    alice.on('bot:screen', (m) => aliceSaw.push(m))
+
+    expect(await watch(alice, true)).toEqual({ ok: false })
+    const told = next(bot, 'bots:watch')
+    expect(await watch(admin, true)).toEqual({ ok: true })
+    expect(await told).toBe(true)
+
+    const shown = next<{ bot: string; png: ArrayBuffer; status: string }>(admin, 'bot:screen')
+    bot.emit('bot:screen', { png: Buffer.from([0x89, 0x50]), status: 'on  BPEE  frame 9' })
+    const m = await shown
+    expect(m.bot).toBe('bot5')
+    expect([...new Uint8Array(m.png)]).toEqual([0x89, 0x50])
+    expect(m.status).toBe('on  BPEE  frame 9')
+
+    // Control: one watching admin at a time; keys pass only from them; dropping out returns it.
+    const control = (s: Socket, bot: string, on: boolean) => new Promise<{ ok: boolean; message?: string }>((r) => s.emit('bot:control', bot, on, r))
+    expect((await control(alice, 'bot5', true)).ok).toBe(false)
+    expect(await control(admin, 'bot9', true)).toEqual({ ok: false, message: 'bot9 is not running.' })
+    const taken = next(bot, 'bot:control')
+    expect(await control(admin, 'bot5', true)).toEqual({ ok: true })
+    expect(await taken).toEqual({ by: 'admin' })
+    const root = open({ user: 'root' })
+    expect(await watch(root, true)).toEqual({ ok: true })
+    expect(await control(root, 'bot5', true)).toEqual({ ok: false, message: 'admin has control of bot5.' })
+    const botKeys: unknown[] = []
+    bot.on('bot:keys', (k) => botKeys.push(k))
+    root.emit('bot:keys', 'bot5', 1) // not in control
+    admin.emit('bot:keys', 'bot5', 0x400) // no such button
+    const pressed = next(bot, 'bot:keys')
+    admin.emit('bot:keys', 'bot5', 0x41)
+    expect(await pressed).toBe(0x41)
+    expect(botKeys).toEqual([0x41])
+
+    const returned = next(bot, 'bot:control')
+    admin.disconnect()
+    expect(await returned).toEqual({ by: null })
+    expect(audited.map((e) => `${e.action} ${e.targetId}`)).toEqual(['bot.control bot5', 'bot.release bot5'])
+    const stopped = next(bot, 'bots:watch')
+    root.disconnect()
+    expect(await stopped).toBe(false)
+    expect(aliceSaw).toEqual([])
+
+    bot.disconnect()
+    alice.disconnect()
+    await new Promise((r) => server.close(r))
   })
 })

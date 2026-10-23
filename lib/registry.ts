@@ -64,7 +64,7 @@ export function reconcile(input: {
    * (lib/link-sessions.ts#linkPartnerSlots). Emulator saves only: an import or
    * restore can't carry a link trade.
    */
-  linkPartners?: Set<string>
+  linkPartners?: ReadonlySet<string> | ReadonlyMap<string, unknown>
 }): ReconcileResult {
   const { slotId, seen, existing, liveSlotIds, newOrigin, lastSightings, linkPartners } = input
   const result: ReconcileResult = { inserts: [], claims: [], linkClaims: [], touches: [], conflicts: [], sightings: [] }

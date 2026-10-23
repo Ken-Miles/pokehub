@@ -50,7 +50,9 @@ export async function ingestSave(opts: {
     }
     throw e
   }
-  if (!saveFamilyMatchesGame(parsed.family, slot.platform, slot.gameCode)) {
+  const region = slot.gameCode.at(-1)
+  const wrongRegion = slot.platform === 'GB' && (parsed.japanese !== (region === 'J') || parsed.korean !== (region === 'K'))
+  if (!saveFamilyMatchesGame(parsed.family, slot.platform, slot.gameCode) || wrongRegion) {
     throw new HttpError(422, 'wrong_game', "That save belongs to a different game than this slot.")
   }
 
@@ -96,12 +98,13 @@ export async function ingestSave(opts: {
       throw new HttpError(409, 'stale_parent', 'Your save changed somewhere else. Reload to continue.')
     }
 
+    const partners = source === 'EMULATOR' ? await linkPartnerSlots(tx, slot.id) : undefined
     const { conflicts, linkClaims } = await applyRegistry(tx, {
       slotId: slot.id,
       versionId: version.id,
       seen: parsed.pokemon,
       newOrigin: source === 'IMPORT' ? 'IMPORTED' : 'NATIVE',
-      linkPartners: source === 'EMULATOR' ? await linkPartnerSlots(tx, slot.id) : undefined,
+      linkPartners: partners,
     })
 
     // A link trade is a trade (ADR-007): neither slot may restore to before it.
@@ -115,6 +118,27 @@ export async function ingestSave(opts: {
           await tx.gameSlot.update({ where: { id: from }, data: { lastTradeVersionId: giver.currentVersionId } })
         }
       }
+      // FR-37: one row per Pokémon received, for /admin/trades.
+      await tx.linkTrade.createMany({
+        data: linkClaims.map((c) => {
+          const from = partners!.get(c.fromSlotId)!
+          const mon = parsed.pokemon.find((p) => p.fingerprint === c.fingerprint)!
+          return {
+            sessionId: from.sessionId,
+            mode: from.mode,
+            fingerprint: c.fingerprint,
+            species: mon.species,
+            speciesName: mon.speciesName,
+            nickname: mon.nickname,
+            level: mon.level,
+            fromUserId: from.userId,
+            fromSlotId: c.fromSlotId,
+            toUserId: slot.userId,
+            toSlotId: slot.id,
+            versionId: version.id,
+          }
+        }),
+      })
       await audit(
         {
           actorId,

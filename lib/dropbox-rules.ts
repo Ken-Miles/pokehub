@@ -1,5 +1,5 @@
 import { MAX_SAVE_BYTES } from '@/lib/games'
-import { hasGbaRomHeader, hasNdsRomHeader } from '@/lib/rom-header'
+import { hasGbRomHeader, hasGbaRomHeader, hasNdsRomHeader } from '@/lib/rom-header'
 import type { Rejection } from '@/lib/save-rules'
 
 /**
@@ -19,7 +19,7 @@ export const DROP_DAILY_LIMIT = 100
 export function dropProblem(bytes: Uint8Array): Rejection | null {
   if (bytes.length === 0) return { status: 400, code: 'empty', message: 'That file is empty.' }
   if (bytes.length > DROP_MAX_BYTES) return tooBig()
-  if (hasGbaRomHeader(bytes) || hasNdsRomHeader(bytes))
+  if (hasGbaRomHeader(bytes) || hasGbRomHeader(bytes) || hasNdsRomHeader(bytes))
     return { status: 400, code: 'game_file', message: 'That is a game file, not a save. Game files are never uploaded.' }
   return null
 }

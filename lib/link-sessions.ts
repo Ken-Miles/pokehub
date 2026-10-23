@@ -36,7 +36,7 @@ const fail = (r: Rejection | null) => {
   if (r) throw HttpError.from(r)
 }
 
-async function lockState(tx: Tx, sessionId: string): Promise<SessionState> {
+export async function lockState(tx: Tx, sessionId: string): Promise<SessionState> {
   await tx.$queryRaw`SELECT id FROM link_sessions WHERE id = ${sessionId} FOR UPDATE`
   const s = await tx.linkSession.findUnique({ where: { id: sessionId }, include: { seats: true } })
   if (!s) throw new HttpError(404, 'not_found', 'Link session not found.')
@@ -52,20 +52,21 @@ async function lockState(tx: Tx, sessionId: string): Promise<SessionState> {
       romSha1: x.romSha1,
       coreBuild: x.coreBuild,
       ready: !!x.readyAt,
+      left: !!x.leftAt,
     })),
   }
 }
 
-async function slotForSeat(tx: Tx, slotId: string, sessionId: string | null) {
+export async function slotForSeat(tx: Tx, slotId: string, sessionId: string | null) {
   const slot = await tx.gameSlot.findUnique({ where: { id: slotId } })
   if (!slot) throw new HttpError(404, 'not_found', 'Slot not found.')
   const otherOpenSessions = await tx.linkSeat.count({
-    where: { slotId, session: { state: { in: ['LOBBY', 'ACTIVE'] }, ...(sessionId ? { id: { not: sessionId } } : {}) } },
+    where: { slotId, leftAt: null, session: { state: { in: ['LOBBY', 'ACTIVE'] }, ...(sessionId ? { id: { not: sessionId } } : {}) } },
   })
   return { ...slot, otherOpenSessions }
 }
 
-function notify(userIds: Iterable<string>, sessionId: string, event = 'link:updated') {
+export function notify(userIds: Iterable<string>, sessionId: string, event = 'link:updated') {
   for (const id of new Set(userIds)) emitToUser(id, event, { sessionId })
 }
 
@@ -186,6 +187,21 @@ export async function endSession(actorId: string | null, sessionId: string, reas
   return true
 }
 
+/**
+ * At server start: end every link the relay was carrying. Its state lives in the
+ * process, so after a restart no page is joined any more and nothing would ever
+ * end them (cables and rooms would stay "already linked"). Lockstep lobbies don't
+ * need the relay yet and survive.
+ */
+export async function endOrphanedLinks(): Promise<number> {
+  const orphans = await prisma.linkSession.findMany({
+    where: { OR: [{ state: 'ACTIVE' }, { state: 'LOBBY', mode: { in: ['CABLE', 'WIRELESS'] } }] },
+    select: { id: true },
+  })
+  for (const s of orphans) await endSession(null, s.id, 'disconnected')
+  return orphans.length
+}
+
 /** Close lobbies nobody started (worker sweeper). */
 export async function expireLobbies(now = new Date()): Promise<number> {
   const stale = await prisma.linkSession.findMany({
@@ -203,6 +219,8 @@ export interface SeatView {
   slot: { id: string; gameCode: string; gameName: string; trainerName: string | null } | null
   romSha1: string | null
   ready: boolean
+  /** Left a wireless room (FR-35). */
+  left: boolean
   hasSave: boolean
 }
 
@@ -233,6 +251,7 @@ export async function sessionView(me: User, sessionId: string) {
           : null,
         romSha1: x.romSha1,
         ready: !!x.readyAt,
+        left: !!x.leftAt,
         hasSave: s.state === 'ACTIVE' ? !!x.startVersionId : false,
       }),
     ),
@@ -242,7 +261,7 @@ export async function sessionView(me: User, sessionId: string) {
 /** My lobbies, running sessions and invites. */
 export async function mySessions(me: User) {
   const seats = await prisma.linkSeat.findMany({
-    where: { userId: me.id, session: { state: { in: ['LOBBY', 'ACTIVE'] } } },
+    where: { userId: me.id, session: { state: { in: ['LOBBY', 'ACTIVE'] }, mode: { not: 'CABLE' } } }, // cables live on the play page
     include: { session: { include: { host: { select: { username: true } }, _count: { select: { seats: true } } } } },
     orderBy: { createdAt: 'desc' },
   })
@@ -267,27 +286,36 @@ export async function seatStartSave(me: User, sessionId: string, seat: number): 
 }
 
 /** Is this user on this session's cable, and which seats do they play? (lib/link-relay.ts) */
-export async function seatsOf(userId: string, sessionId: string): Promise<{ state: string; seats: number[]; userIds: string[] } | null> {
-  const s = await prisma.linkSession.findUnique({ where: { id: sessionId }, include: { seats: { select: { seat: true, userId: true } } } })
-  if (!s || !s.seats.some((x) => x.userId === userId)) return null
-  return { state: s.state, seats: s.seats.filter((x) => x.userId === userId).map((x) => x.seat), userIds: [...new Set(s.seats.map((x) => x.userId))] }
+export async function seatsOf(
+  userId: string,
+  sessionId: string,
+): Promise<{ state: string; mode: LinkMode; hostId: string; seats: number[]; userIds: string[] } | null> {
+  const s = await prisma.linkSession.findUnique({ where: { id: sessionId }, include: { seats: { select: { seat: true, userId: true, readyAt: true, leftAt: true } } } })
+  // In a wireless room only members who joined and haven't left are on the air.
+  const mine = s?.seats.filter((x) => x.userId === userId && (s.mode !== 'WIRELESS' || (x.readyAt && !x.leftAt))) ?? []
+  if (!s || !mine.length) return null
+  return { state: s.state, mode: s.mode, hostId: s.hostId, seats: mine.map((x) => x.seat), userIds: [...new Set(s.seats.map((x) => x.userId))] }
 }
 
 /**
  * Slots that shared a running session with `slotId`, or one that ended less
  * than LINK_GRACE_MS ago: the only slots a Pokémon may arrive from in-game
- * (lib/registry.ts, link claims).
+ * (lib/registry.ts, link claims). Maps each to the session they shared (the newest, if several).
  */
-export async function linkPartnerSlots(tx: Tx, slotId: string, now = new Date()): Promise<Set<string>> {
+export async function linkPartnerSlots(tx: Tx, slotId: string, now = new Date()): Promise<Map<string, { sessionId: string; userId: string; mode: LinkMode }>> {
+  // Only seats that were really in (not just invited), and not gone longer than the grace period.
+  const inRoom = { readyAt: { not: null }, OR: [{ leftAt: null }, { leftAt: { gt: new Date(now.getTime() - LINK_GRACE_MS) } }] }
   const rows = await tx.linkSeat.findMany({
     where: {
       slotId: { not: slotId },
+      ...inRoom,
       session: {
-        seats: { some: { slotId } },
+        seats: { some: { slotId, ...inRoom } },
         OR: [{ state: 'ACTIVE' }, { state: 'ENDED', startedAt: { not: null }, endedAt: { gt: new Date(now.getTime() - LINK_GRACE_MS) } }],
       },
     },
-    select: { slotId: true },
+    select: { slotId: true, userId: true, sessionId: true, session: { select: { mode: true } } },
+    orderBy: { session: { createdAt: 'asc' } },
   })
-  return new Set(rows.map((r) => r.slotId).filter((id): id is string => !!id))
+  return new Map(rows.flatMap((r) => (r.slotId ? [[r.slotId, { sessionId: r.sessionId, userId: r.userId, mode: r.session.mode }] as const] : [])))
 }

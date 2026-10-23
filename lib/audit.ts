@@ -59,3 +59,24 @@ export async function queryAudit(filter: AuditFilter) {
     nextCursor: events.length > limit ? page[page.length - 1].id : null,
   }
 }
+
+/** FR-37: in-game link trades, newest first, optionally only those a user gave or received. */
+export async function queryLinkTrades(filter: { userId?: string; cursor?: string; limit?: number }) {
+  const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200)
+  const trades = await prisma.linkTrade.findMany({
+    where: filter.userId ? { OR: [{ fromUserId: filter.userId }, { toUserId: filter.userId }] } : {},
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit + 1,
+    ...(filter.cursor ? { cursor: { id: filter.cursor }, skip: 1 } : {}),
+  })
+  const page = trades.slice(0, limit)
+
+  const userIds = [...new Set(page.flatMap((t) => [t.fromUserId, t.toUserId]))]
+  const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, username: true } })
+  const names = new Map(users.map((u) => [u.id, u.username]))
+
+  return {
+    trades: page.map((t) => ({ ...t, from: names.get(t.fromUserId) ?? null, to: names.get(t.toUserId) ?? null })),
+    nextCursor: trades.length > limit ? page[page.length - 1].id : null,
+  }
+}

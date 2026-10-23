@@ -38,7 +38,8 @@ export const authOptions: NextAuthOptions = {
         const user = login
           ? await prisma.user.findFirst({ where: { OR: [{ username: login }, { email: login }] } })
           : null
-        const ok = !!user && (await verifyPassword(user.passwordHash, password))
+        // Bots never sign in; only the bot host acts as them (ADR-023).
+        const ok = !!user && !user.isBot && (await verifyPassword(user.passwordHash, password))
         // Only someone who knows the password learns that the account is blocked, and why.
         const blocked = ok && user ? accountBlock(user) : null
 

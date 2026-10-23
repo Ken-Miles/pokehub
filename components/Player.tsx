@@ -3,12 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import { FileDrop } from '@/components/FileDrop'
+import { LinkCable } from '@/components/LinkCable'
+import { Wireless } from '@/components/Wireless'
 import { forgetRom, inspectRom, rememberRom, rememberedRom } from '@/lib/client/rom'
 import { canBind, legend, type Action, type Binding } from '@/lib/client/controls'
 import { EmulatorFrame, FrameClock } from '@/lib/client/emulator'
 import { loadEmulatorBindings, saveEmulatorBindings } from '@/lib/client/emulator-controls'
 import { SaveSync, indexedDbQueue, romCheck, type PendingSave, type SyncStatus } from '@/lib/client/save-sync'
-import type { Platform } from '@/lib/games'
+import { PLATFORMS, type Platform } from '@/lib/games'
+import { airable } from '@/lib/link-rules'
+
+/** Frames per tick while fast-forwarding (FR-06): 3× speed. */
+const FAST_FORWARD = 3
 
 type Phase = 'need-rom' | 'loading' | 'device-conflict' | 'playing' | 'stale' | 'locked' | 'error'
 interface Props {
@@ -40,6 +46,12 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
   const [audioReady, setAudioReady] = useState(false)
   const [muted, setMuted] = useState(false)
   const [volume, setVolume] = useState(1)
+  const [fastForward, setFastForward] = useState(false)
+  const [cable, setCable] = useState(false)
+  const [air, setAir] = useState(false)
+  const [waiting, setWaiting] = useState(false)
+  const waitingRef = useRef(false)
+  const fastRef = useRef(false)
   const persistedBindings = useRef<string | null>(null)
   const statusRef = useRef<SyncStatus['state']>('synced')
 
@@ -80,6 +92,15 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
       s.dispose()
     }
   }, [slotId, platform])
+
+  // A save still on its way to the cloud: ask before the tab closes. A link trade
+  // only counts if its save arrives within LINK_GRACE_MS of the link ending.
+  useEffect(() => {
+    if (status.state !== 'syncing' && status.state !== 'offline') return
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [status.state])
 
   const start = useCallback(
     async (bytes: ArrayBuffer) => {
@@ -134,13 +155,16 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
     const e = new EmulatorFrame(frame.current)
     emu.current = e
     const c = new FrameClock(async () => {
-      await e.runFrames(1)
+      // Fast-forward runs several frames per tick; the iframe plays only the last one's sound.
+      const r = await e.runFrames(fastRef.current ? FAST_FORWARD : 1)
+      // Gen 3 cable: the game held a frame back for the friend's words (ADR-021).
+      if (!!r.waiting !== waitingRef.current) setWaiting((waitingRef.current = !!r.waiting))
       return true
     })
     clock.current = c
     e.on('ready', () => {
       void loadEmulatorBindings().catch(() => ({})).then((saved) => {
-        if (rom.current) e.boot({ games: [{ rom: rom.current, save: bootSave.current }], local: [0], bindings: saved, rtc: { mode: 'wall' } })
+        if (rom.current) e.boot({ platform: platform === 'GB' ? 'GB' : 'GBA', games: [{ rom: rom.current, save: bootSave.current }], local: [0], bindings: saved, rtc: { mode: 'wall' } })
       })
     })
     e.on('started', () => c.start())
@@ -189,6 +213,8 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
   // Another tab, a restore or (later) a trade moved this slot on: stop before we overwrite it.
   useEffect(() => {
     const socket = io({ path: '/socket.io' })
+    // Tell friends I'm playing this slot, for the link cable (FR-34); again after a reconnect.
+    socket.on('connect', () => socket.emit('play:here', slotId))
     socket.on('slot:updated', async (ev: { slotId: string; versionId: string }) => {
       if (ev.slotId !== slotId || !sync.current) return
       await sync.current.idle()
@@ -218,7 +244,7 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
           Choose a backup of a game you own. It stays on this device and is never uploaded — only your save file is
           synced.
         </p>
-        <FileDrop label={`Your ${gameName} backup (.gba)`} accept=".gba" onFile={pick} />
+        <FileDrop label={`Your ${gameName} backup (${PLATFORMS[platform].romExtension})`} accept={PLATFORMS[platform].romExtension ?? ""} onFile={pick} />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
           Remember this game on this device
@@ -237,6 +263,7 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <div className="flex items-center gap-3">
           <SyncBadge status={status} />
+          {waiting && <span className="text-warn">Waiting for your friend&rsquo;s game…</span>}
           {phase === 'playing' && status.state !== 'syncing' && (
             <button className="underline" onClick={syncNow}>
               Sync now
@@ -286,6 +313,38 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
           onMute={() => { const next = !muted; setMuted(next); send({ type: 'audio-settings', muted: next, volume }) }}
           onVolume={(value) => { setVolume(value); send({ type: 'audio-settings', muted, volume: value }) }}
           onFullscreen={() => void frame.current?.requestFullscreen()}
+          fastForward={fastForward}
+          linked={cable || air}
+          onFastForward={() => {
+            fastRef.current = !fastRef.current
+            setFastForward(fastRef.current)
+            frame.current?.focus()
+          }}
+        />
+      )}
+      {phase === 'playing' && (platform === 'GB' || platform === 'GBA') && (
+        <LinkCable
+          slotId={slotId}
+          emu={() => emu.current}
+          disabled={air}
+          onPlugged={(on) => {
+            // One speed while plugged in: the friend's game can't keep up with fast-forward.
+            fastRef.current = false
+            setFastForward(false)
+            setCable(on)
+          }}
+        />
+      )}
+      {phase === 'playing' && airable(platform, gameCode) && (
+        <Wireless
+          slotId={slotId}
+          emu={() => emu.current}
+          disabled={cable}
+          onOn={(on) => {
+            fastRef.current = false
+            setFastForward(false)
+            setAir(on)
+          }}
         />
       )}
     </div>
@@ -305,6 +364,8 @@ export function ControlsPanel({
   onMute,
   onVolume,
   onFullscreen,
+  fastForward = false,
+  onFastForward,
 }: {
   bindings: Binding[]
   onBind: (action: Action, code: string) => void
@@ -317,6 +378,9 @@ export function ControlsPanel({
   onMute?: () => void
   onVolume?: (value: number) => void
   onFullscreen?: () => void
+  /** Solo only: lockstep has one speed. */
+  fastForward?: boolean
+  onFastForward?: () => void
 }) {
   const [listening, setListening] = useState<Action | null>(null)
   const rows = legend(bindings, { linked })
@@ -339,6 +403,11 @@ export function ControlsPanel({
         <span className="font-medium">Settings</span>
         {!audioReady && <button className="rounded border border-line px-2 py-1" onClick={onEnableAudio}>Enable sound</button>}
         <button className="rounded border border-line px-2 py-1" aria-pressed={muted} onClick={onMute}>{muted ? 'Unmute' : 'Mute'}</button>
+        {onFastForward && !linked && (
+          <button className="rounded border border-line px-2 py-1" aria-pressed={fastForward} onClick={onFastForward}>
+            {fastForward ? 'Normal speed' : 'Fast-forward'}
+          </button>
+        )}
         <label className="flex items-center gap-2 text-muted">Volume
           <input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => onVolume?.(Number(e.target.value))} />
         </label>

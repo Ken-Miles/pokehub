@@ -36,3 +36,14 @@ export function formatSyncedAt(iso: string, now = Date.now()): string {
   if (minutes < 24 * 60) return `${Math.floor(minutes / 60)} h ago`
   return new Date(iso).toLocaleDateString()
 }
+
+/** Median of five round trips from this browser to the site (a tiny static file, never cached). */
+export async function siteRoundTrip(): Promise<number> {
+  const times: number[] = []
+  for (let i = 0; i < 5; i++) {
+    const t = performance.now()
+    await fetch('/emulator/core/build.json', { cache: 'no-store' })
+    times.push(performance.now() - t)
+  }
+  return times.sort((a, b) => a - b)[2]
+}

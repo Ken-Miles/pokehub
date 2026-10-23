@@ -1,15 +1,18 @@
 /**
- * Game catalog (FR-05, ADR-013). Every supported game for Gen 3–7 lives here as
- * data; a platform is switched on by its `availability`, not by new code paths.
- * Runs in the browser and on the server: the browser reads the header + hashes
- * the file, the server only ever sees the platform, the 4-letter code and the SHA-1.
+ * Game catalog (FR-05, ADR-013, ADR-019). Every supported game for Gen 1–7
+ * lives here as data; a platform is switched on by its `availability`,
+ * not by new code paths. Runs in the browser and on the server: the browser reads
+ * the header + hashes the file, the server only ever sees the platform, the
+ * 4-letter code and the SHA-1.
  */
 
-export type Platform = 'GBA' | 'NDS' | 'N3DS'
-export type Generation = 3 | 4 | 5 | 6 | 7
+import { hasGbRomHeader } from '@/lib/rom-header'
+
+export type Platform = 'GB' | 'GBA' | 'NDS' | 'N3DS'
+export type Generation = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 /** Save format as the save service (PKHeX) reports it. Games sharing a format share a family. */
-export type SaveFamily = 'RS' | 'E' | 'FRLG' | 'DP' | 'Pt' | 'HGSS' | 'BW' | 'B2W2' | 'XY' | 'ORAS' | 'SM' | 'USUM'
+export type SaveFamily = 'RBY' | 'GS' | 'C' | 'RS' | 'E' | 'FRLG' | 'DP' | 'Pt' | 'HGSS' | 'BW' | 'B2W2' | 'XY' | 'ORAS' | 'SM' | 'USUM'
 
 export interface PlatformInfo {
   name: string
@@ -21,13 +24,24 @@ export interface PlatformInfo {
   identifiedBy: 'rom-header' | 'save'
   romExtension: string | null
   /** Core the emulator iframe boots; null when the game doesn't run on the site. */
-  emulatorCore: 'gba' | 'nds' | null
+  emulatorCore: 'gb' | 'gba' | 'nds' | null
   /** Exact sizes accepted for upload; the largest is enforced before buffering (NFR-01). */
   saveSizes: readonly number[]
   phase: string
 }
 
 export const PLATFORMS: Record<Platform, PlatformInfo> = {
+  GB: {
+    name: 'Game Boy',
+    availability: 'playable',
+    runsIn: 'browser',
+    identifiedBy: 'rom-header',
+    romExtension: '.gb,.gbc', // Gen 2 carts are Game Boy Color (.gbc); the same core runs both
+    emulatorCore: 'gb',
+    // 32 KB SRAM; Gen 2 carts' clock block appended by emulators: 16, 44 or 48 bytes (our mGBA build: 48).
+    saveSizes: [0x8000, 0x8010, 0x802c, 0x8030],
+    phase: 'Phase 1',
+  },
   GBA: {
     name: 'Game Boy Advance',
     availability: 'playable',
@@ -72,6 +86,19 @@ interface CatalogEntry {
  * and Disney Friends on DS). 3DS games are keyed by the version the save reports.
  */
 const CATALOG: Record<Platform, Record<string, CatalogEntry>> = {
+  // Game Boy codes are No-Intro's serials (APA is Red, AAU Gold). The last letter is
+  // only J (Japan), K (Korea) or O (every other language): the one split that matters
+  // for the link cable. Gen 1 carts carry no code in their header at all. The browser finds the code by
+  // SHA-1 (lib/client/rom.ts), falling back to the header title for unlisted dumps.
+  GB: {
+    APA: { name: 'Red', generation: 1, family: 'RBY' },
+    APG: { name: 'Green', generation: 1, family: 'RBY' },
+    APE: { name: 'Blue', generation: 1, family: 'RBY' },
+    APS: { name: 'Yellow', generation: 1, family: 'RBY' },
+    AAU: { name: 'Gold', generation: 2, family: 'GS' },
+    AAX: { name: 'Silver', generation: 2, family: 'GS' },
+    BYT: { name: 'Crystal', generation: 2, family: 'C' },
+  },
   GBA: {
     AXV: { name: 'Ruby', generation: 3, family: 'RS' },
     AXP: { name: 'Sapphire', generation: 3, family: 'RS' },
@@ -193,7 +220,29 @@ export function readNdsHeader(bytes: Uint8Array): RomHeader | null {
   return { platform: 'NDS', title: ascii(bytes, 0x00, 0x0c), code }
 }
 
-/** Whichever header matches. GBA first: its check sits outside the DS header. */
+const GB_TITLES: [RegExp, string][] = [
+  [/CRYSTAL/, 'BYT'],
+  [/GLD|GOLD/, 'AAU'],
+  [/SLV|SILVER/, 'AAX'],
+  [/RED/, 'APA'],
+  [/GREEN/, 'APG'],
+  [/BLUE/, 'APE'],
+  [/YELLOW/, 'APS'],
+]
+
+/**
+ * A Game Boy header (logo + header checksum). Gen 1 headers have no game code,
+ * so `code` is a guess from the English title and the Japan/overseas byte, or ''
+ * when the title isn't one of those (Korean carts read as overseas); lib/client/rom.ts prefers the SHA-1 match.
+ */
+export function readGbHeader(bytes: Uint8Array): RomHeader | null {
+  if (!hasGbRomHeader(bytes)) return null
+  const title = ascii(bytes, 0x134, 0x144)
+  const prefix = GB_TITLES.find(([re]) => re.test(title))?.[1]
+  return { platform: 'GB', title, code: prefix ? prefix + (bytes[0x14a] === 0 ? 'J' : 'O') : '' }
+}
+
+/** Whichever header matches. GBA first: its check sits outside the GB and DS headers. */
 export function readRomHeader(bytes: Uint8Array): RomHeader | null {
-  return readGbaHeader(bytes) ?? readNdsHeader(bytes)
+  return readGbaHeader(bytes) ?? readGbHeader(bytes) ?? readNdsHeader(bytes)
 }

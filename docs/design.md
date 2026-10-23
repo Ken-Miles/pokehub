@@ -1,8 +1,8 @@
 # Pokémon Hub — design summary
 
 The full design lives in the Obsidian vault **Pokemon Hub**
-(`~/Documents/obsidian/Pokemon Hub`): one note per requirement (FR-01…FR-32,
-NFR-01…NFR-13), component notes, phases, and ADR-001…ADR-018. This file is the
+(`~/Documents/obsidian/Pokemon Hub`): one note per requirement (FR-01…FR-37,
+NFR-01…NFR-13), component notes, phases, and ADR-001…ADR-025. This file is the
 short version for anyone reading the code.
 
 ## What it is
@@ -25,6 +25,8 @@ game file — only save files (ADR-001).
 1. **No game files on the server** (NFR-01). Save routes refuse bodies larger
    than the slot's platform allows before buffering (GBA 131,088 bytes, largest
    of any platform 512 KB); only platform + header code + SHA-1 of a ROM is sent.
+   The one exception is the separate bot host (ADR-023), which reads games from
+   a read-only folder an operator fills by hand; nothing sends it a game file.
 2. **Every save version is immutable** (NFR-07). Content-addressed blob keys;
    a DB trigger blocks rewriting `save_versions`.
 3. **Uploads name their parent** (ADR-006). `x-parent-version` must equal the
@@ -80,19 +82,78 @@ through the save pipeline.
   `LINK_GRACE_MS` after; emulator saves only), and the restore barrier moves on
   both slots (`lib/save-pipeline.ts`, `lib/registry.ts`). No save states while
   linked.
+- Every Pokémon received that way is a row in `link_trades` (FR-37, ADR-025):
+  append-only, plain ids, written in the ingest transaction; admins read it at
+  `/admin/trades`. In-game saves upload on their own; the play and link pages ask
+  before closing a tab whose save is still uploading.
 - A session starts only when every seat has a slot, a game file whose SHA-1 is
   on the allowlist, and the same emulator build (`public/emulator/core/build.json`).
   Start pins each seat's save version, a shared clock value and the input delay.
   A state-hash mismatch ends the session (`desync`).
 - Built: `/link` (FR-26) with same-device sessions (one account's own slots in
-  one page) and network sessions (lockstep inputs through the Socket.IO relay,
-  `lib/link-relay.ts`, fixed 2-frame delay). Rules in `lib/link-rules.ts`, I/O
-  in `lib/link-sessions.ts`, schedule in `lib/client/lockstep.ts`.
-- Not built: WebRTC peer to peer, a delay picked from the measured round trip,
+  one page) and network sessions (lockstep inputs over WebRTC data channels,
+  `lib/client/peer-link.ts`, host candidates only so direct on one network or
+  cable; through the Socket.IO relay, `lib/link-relay.ts`, while any peer's
+  channel isn't open, and a dropped channel re-sends its last inputs there; the
+  host picks the input delay from its doubled round trip to the site). Rules in
+  `lib/link-rules.ts`, I/O in `lib/link-sessions.ts`, schedule in
+  `lib/client/lockstep.ts`.
+- Not built: STUN/TURN, reconnecting a dropped channel, each peer's own round trip in the delay,
   the Emerald Multiplayer hack flow (FR-31; the core can already apply a patch).
   Not verified: a real Cable Club battle and trade; full speed in all three
   browsers (NFR-09).
 - Gen 4–5 later: our own replacement for Nintendo Wi-Fi Connection (Phase 5).
+
+## The link cable and the Wireless Adapter (ADR-019…022)
+- Platform `GB`: Red, Green (Japan), Blue, Yellow; codes `APA`/`APG`/`APE`/`APS` + `J` or
+  `O`. Headers carry no code, so `lib/client/rom.ts` finds it by SHA-1. Saves are 32 KB,
+  family `RBY`; a Japanese save never goes into an international slot (and back).
+- Clone fingerprint for Gen 1: `gb1:<base species>:<DVs>:<TID>:<OT>` (no PID in Gen 1).
+- Trading happens in the games: each player runs only their own game and a network
+  serial driver (`emulator/src/hub.c`) relays cable bytes. Plugging in from the play
+  page (`components/LinkCable.tsx`, `lib/cable.ts`, `/api/cable/*`) creates a two-seat
+  `CABLE` link session, so link-trade reconciliation and the restore barrier apply.
+- Presence (who's playing what) lives in the web process (`lib/realtime.ts`), like the
+  relay: one web process until both move to Redis.
+- Gen 3 uses the same cable from the play page (ADR-021): each player runs only their
+  own GBA game; the requester is the cable's parent, the child's words arrive `delay`
+  frames late (from the measured round trip), and the parent holds frames back rather
+  than desync. Lockstep (`/link`) stays for same-device and 3–4-player sessions.
+- Wireless Adapter rooms (FR-35, ADR-022, ADR-024): FireRed, LeafGreen and Emerald players
+  open a `WIRELESS` link session of up to 16 (`lib/wireless.ts`, `/api/wireless/*`,
+  `components/Wireless.tsx`); our core emulates the adapter and only adapter messages
+  cross the relay. A room is radio range: beacons reach everyone, while a link (a
+  host and at most 4 children) is the emulated adapter's business, never the site's,
+  and the relay sends a message for one seat only to that seat's page. Members join and leave while the room runs (`link_seats.leftAt`);
+  only seats that joined count as link-trade partners. Cable and adapter share the
+  GBA's one serial port, so the play page offers one at a time.
+- Relay state lives in the web process, so at startup the relay ends every link it was
+  carrying (`lib/link-sessions.ts#endOrphanedLinks`), and a page whose relay connection
+  drops turns its cable or adapter off.
+
+## Test bots (FR-36, ADR-023)
+- A separate bot host (`bots/main.ts`, its own container) runs bot players on our
+  mGBA core in Node, one worker thread each, with games from a hand-filled
+  read-only folder. It is the only place outside a browser that holds a game file.
+- Bots are accounts with `isBot`, created by an admin, friend codes `0000-0000-NNNN`
+  (never given to players). They can't sign in; the bot host acts for them with its
+  own secret (not `NEXTAUTH_SECRET`) and goes through the real cable, wireless,
+  relay and save-upload paths.
+- `/admin/bots` turns bots on/off, sets game, base save and settings, and shows a
+  live screen with button input. Commands are goals ("bot5 accept a trade from
+  bot16"); the bot host's coordinator turns them into steps checked against game
+  memory (addresses per ROM revision).
+- Open: resetting a bot after a trade vs. clone detection and the restore barrier.
+- Built (P0): `isBot`, `lib/bot-auth.ts` (`x-bot-key` + `x-bot` headers / socket auth,
+  `BOT_HOST_SECRET`), `npm run bots:create`, and `bots/` (`npm run bots`): one thread,
+  cable only, Emerald (US) Trade Center steps in `bots/emerald.ts` — not yet run against
+  the real game. Wireless rooms built since.
+- Built: `/admin/bots` live view (`lib/bot-watch.ts`): bots send PNG screens at 10 fps
+  only while an admin is watching; the site relays them to admins only. One watching
+  admin at a time takes control of a bot: their buttons replace the bot's, the bot's
+  frame waits stop (so its commands pause), and control returns when they give it back,
+  stop watching or drop. Taking/returning control is audited (`bot.control`,
+  `bot.release`). Not built: bot settings from the page, worker threads.
 
 ## Save ingest path
 `POST /api/slots/:id/saves` → `checkUpload` (size, lock, parent) →

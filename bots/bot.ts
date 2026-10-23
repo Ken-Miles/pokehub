@@ -43,10 +43,17 @@ export class Bot {
   air: { sessionId: string; seat: number; host: boolean; peer: Socket } | null = null
   /** Accept every cable request from a friend (FR-36: bots answer testers and other bots). */
   autoAccept = true
+  /** The admin controlling this bot from /admin/bots: their buttons replace the bot's, and commands wait (lib/bot-watch.ts). */
+  controlledBy: string | null = null
   frames = 0
   private socket: Socket | null = null
   private timer: NodeJS.Timeout | null = null
+  /** Sends the screen to /admin/bots while an admin is watching (lib/bot-watch.ts). */
+  private screenTimer: NodeJS.Timeout | null = null
   private keys = 0
+  private adminKeys = 0
+  /** Buttons pressed since the last frame: a quick tap can come and go between two frames. */
+  private tapped = 0
   private waiters: (() => void)[] = []
   private versionId: string | null = null
   private savedHash = ''
@@ -64,6 +71,12 @@ export class Bot {
 
   get running() {
     return !!this.timer
+  }
+
+  /** What the bot is doing, for `list` and /admin/bots. */
+  get status() {
+    const state = !this.running ? 'off' : this.cable ? `cable to ${this.cable.with}` : this.air ? `wireless seat ${this.air.seat}${this.air.host ? ' (host)' : ''}` : 'on'
+    return `${state}${this.game ? `  ${this.game.code}` : ''}${this.running ? `  frame ${this.frames}` : ''}${this.controlledBy ? `  ${this.controlledBy} has control` : ''}`
   }
 
   /** Boot the bot's slot (the first, or `slotNumber`) from its cloud save and go online. */
@@ -86,6 +99,18 @@ export class Bot {
     this.socket = socket
     socket.on('connect', () => socket.emit('play:here', slot.id))
     socket.on('connect_error', (e) => this.log(`site connection: ${e.message}`))
+    socket.on('bots:watch', (on: boolean) => this.watched(on))
+    socket.on('bot:control', (r: { by: string | null }) => {
+      if (r.by === this.controlledBy) return
+      this.controlledBy = r.by
+      this.adminKeys = this.tapped = 0
+      this.log(r.by ? `${r.by} took control; commands wait` : 'control returned; commands carry on')
+    })
+    socket.on('bot:keys', (keys: number) => {
+      if (!this.controlledBy) return
+      this.adminKeys = keys
+      this.tapped |= keys
+    })
     socket.on('cable:request', (r: { sessionId: string; from: string; slotId: string }) => {
       if (r.slotId !== slot.id) return
       this.log(`${r.from} wants to link cables${this.autoAccept ? ' — accepting' : ''}`)
@@ -123,7 +148,8 @@ export class Bot {
 
   private step() {
     const gba = this.gba!
-    if (!gba.frame(this.keys)) return // held back for the cable child: the frame didn't run
+    if (!gba.frame(this.controlledBy ? this.adminKeys | this.tapped : this.keys)) return // held back for the cable child: the frame didn't run
+    this.tapped = 0
     this.frames++
     if (this.cable) for (const m of gba.takeCable()) this.cable.peer.emit('link:msg', this.cable.sessionId, { t: 'c', p: this.cable.seat, ...m })
     if (this.air) {
@@ -131,6 +157,7 @@ export class Bot {
       const trace = gba.airTrace()
       if (trace) this.log(`wireless adapter, recent events (state 0 idle, 1–2 hosting, 3 searching, 4 connecting, 5 connected):\n${trace}`)
     }
+    if (this.controlledBy) return // commands count frames; none pass while an admin plays
     const ready = this.waiters
     this.waiters = []
     for (const w of ready) w()
@@ -143,10 +170,21 @@ export class Bot {
     await this.uploadSave().catch((e) => this.log(`last save not uploaded: ${e.message}`))
     clearInterval(this.timer!)
     this.timer = null
+    this.watched(false)
+    this.controlledBy = null
     this.socket?.disconnect()
     this.socket = null
     this.gba = null
     this.log('stopped')
+  }
+
+  private watched(on: boolean) {
+    if (this.screenTimer) clearInterval(this.screenTimer)
+    this.screenTimer = null
+    // shortcut: 10 PNGs a second (ADR-023) on the bot host's main thread; fine for a handful of bots.
+    if (on) this.screenTimer = setInterval(() => {
+      if (this.gba) this.socket?.volatile.emit('bot:screen', { png: this.gba.screenshot(), status: this.status })
+    }, 100)
   }
 
   // ---------------------------------------------------------------- inputs

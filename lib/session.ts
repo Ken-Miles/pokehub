@@ -1,7 +1,9 @@
 import { getServerSession } from 'next-auth'
+import { headers } from 'next/headers'
 import type { Role, User } from '@prisma/client'
 import { accountBlock } from '@/lib/account-rules'
 import { authOptions } from '@/lib/auth'
+import { BOT_ID_HEADER, BOT_KEY_HEADER, botUser } from '@/lib/bot-auth'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/http'
 import { roleAtLeast } from '@/lib/rbac'
@@ -11,6 +13,9 @@ import { roleAtLeast } from '@/lib/rbac'
  * or password reset (token_version bump) takes effect immediately.
  */
 export async function currentUser(): Promise<User | null> {
+  // The bot host acting as a bot (FR-36). A request that claims to be a bot never falls back to a cookie.
+  const h = await headers()
+  if (h.has(BOT_KEY_HEADER)) return botUser(h.get(BOT_KEY_HEADER), h.get(BOT_ID_HEADER))
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return null
   const user = await prisma.user.findUnique({ where: { id: session.user.id } })

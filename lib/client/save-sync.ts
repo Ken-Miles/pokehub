@@ -1,5 +1,5 @@
 import { PLATFORMS, isAcceptedSaveSize, type Platform } from '@/lib/games'
-import { hasGbaRomHeader } from '@/lib/rom-header'
+import { hasGbRomHeader, hasGbaRomHeader } from '@/lib/rom-header'
 
 export { hasGbaRomHeader }
 
@@ -49,13 +49,14 @@ const RETRY_MAX_MS = 60_000
 
 /**
  * Null if `bytes` can be uploaded as a save for this platform, else why not.
- * Refuses anything not save-sized, and anything carrying a GBA game header
- * (a slice of a game file), so game-file bytes never go out (NFR-01).
+ * Refuses anything not save-sized, and anything carrying a GBA or Game Boy game
+ * header (a slice of a game file), so game-file bytes never go out (NFR-01).
  */
 export function saveProblem(platform: Platform, bytes: ArrayBuffer): string | null {
   const name = PLATFORMS[platform].name
   if (!isAcceptedSaveSize(platform, bytes.byteLength)) return `That isn't a ${name} save file, so it wasn't uploaded.`
-  if (hasGbaRomHeader(new Uint8Array(bytes))) return 'That is a game file, not a save. Game files never leave your device.'
+  const b = new Uint8Array(bytes)
+  if (hasGbaRomHeader(b) || hasGbRomHeader(b)) return 'That is a game file, not a save. Game files never leave your device.'
   return null
 }
 

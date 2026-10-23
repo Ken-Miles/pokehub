@@ -26,9 +26,31 @@ const files = process.argv.slice(2).length
 // ones (e.g. "Disney Friends" is AXVE, like Ruby). 3DS games are identified from
 // their saves, so no 3DS DAT is needed.
 const PLATFORM_DATS: Record<string, Platform> = {
+  'Nintendo - Game Boy': 'GB',
+  'Nintendo - Game Boy Color': 'GB', // Gen 2 runs on the same platform and core
   'Nintendo - Game Boy Advance': 'GBA',
   'Nintendo - Nintendo DS (Decrypted)': 'NDS',
 }
+
+// Most Gen 1 and 2 dumps have no serial in the DAT, so they're matched by name (lib/games.ts, GB).
+const GB_NAMES: [RegExp, string][] = [
+  [/^Pocket Monsters - Aka /, 'APAJ'],
+  [/^Pocket Monsters - Midori /, 'APGJ'],
+  [/^Pocket Monsters - Ao /, 'APEJ'],
+  [/^Pocket Monsters - Pikachu /, 'APSJ'],
+  [/^Pokemon - (Red Version|Rote Edition|Version Rouge|Edicion Roja|Versione Rossa) /, 'APAO'],
+  [/^Pokemon - (Blue Version|Blaue Edition|Version Bleue|Edicion Azul|Versione Blu) /, 'APEO'],
+  [/^Pokemon - (Yellow Version|Gelbe Edition|Version Jaune|Edicion Amarilla|Versione Gialla) /, 'APSO'],
+  [/^Pocket Monsters Kin /, 'AAUJ'],
+  [/^Pocket Monsters Gin /, 'AAXJ'],
+  [/^Pocket Monsters - Crystal Version /, 'BYTJ'],
+  [/^Pocket Monsters Geum /, 'AAUK'],
+  [/^Pocket Monsters Eun /, 'AAXK'],
+  [/^Pokemon - (Gold Version|Goldene Edition|Version Or|Edicion Oro|Versione Oro) /, 'AAUO'],
+  [/^Pokemon - (Silver Version|Silberne Edition|Version Argent|Edicion Plata|Versione Argento) /, 'AAXO'],
+  [/^Pokemon - (Crystal Version|Kristall-Edition|Version Cristal|Edicion Cristal|Versione Cristallo) /, 'BYTO'],
+]
+const gbCode = (game: string) => GB_NAMES.find(([re]) => re.test(game))?.[1] ?? ''
 
 const hashes: Partial<Record<Platform, Record<string, string[]>>> = {}
 const names: Record<string, string> = {}
@@ -42,12 +64,13 @@ for (const file of files) {
   if (!platform) continue
   // Planned games are listed too, so a platform can be switched on without re-importing.
   for (const rom of dat.roms) {
-    if (!rom.serial || !identifyGame(platform, rom.serial)) continue
+    const code = platform === 'GB' ? gbCode(rom.game) : rom.serial
+    if (!code || !identifyGame(platform, code)) continue
     if (EXCLUDED_DUMP.test(rom.game)) {
       skipped.push(rom.game)
       continue
     }
-    ;((hashes[platform] ??= {})[rom.serial] ??= []).push(rom.sha1)
+    ;((hashes[platform] ??= {})[code] ??= []).push(rom.sha1)
     names[rom.sha1] = rom.game
   }
 }

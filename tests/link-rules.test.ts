@@ -1,6 +1,16 @@
 import {
   MAX_SEATS,
+  cableable,
+  checkAcceptCable,
   checkAddOwnSeat,
+  checkCable,
+  airable,
+  checkAirFriend,
+  checkJoinRoom,
+  checkLeaveRoom,
+  checkOpenRoom,
+  checkRoomInvite,
+  MAX_ROOM,
   checkEnd,
   checkInvite,
   checkPickSlot,
@@ -181,5 +191,100 @@ describe('checkEnd (FR-26)', () => {
   })
   it('refuses a session that already ended', () => {
     expect(code(checkEnd(session({ state: 'ENDED' }), 'host'))).toBe('ended')
+  })
+})
+
+describe('link cable (FR-34)', () => {
+  const gb = (over: Partial<SlotForSeat> = {}): SlotForSeat => slot({ platform: 'GB', gameCode: 'APAO', ...over })
+  const theirs = (over: Partial<SlotForSeat> = {}) => gb({ id: 'theirs', userId: 'friend', gameCode: 'APEO', ...over })
+
+  it('fits Gen 1 and 2 on Game Boy and Gen 3 on Game Boy Advance', () => {
+    expect(cableable('GB', 'APAO')).toBe(true)
+    expect(cableable('GB', 'BYTO')).toBe(true)
+    expect(cableable('NDS', 'ADAE')).toBe(false)
+  })
+  it('plugs into a friend playing a Gen 1 game of the same language group', () => {
+    expect(checkCable('host', gb(), friend, theirs())).toBeNull()
+  })
+  it('needs my own Game Boy slot', () => {
+    expect(code(checkCable('host', gb({ userId: 'p1' }), friend, theirs()))).toBe('not_found')
+    expect(code(checkCable('host', slot({ platform: 'NDS', gameCode: 'ADAE' }), friend, theirs()))).toBe('not_cable')
+  })
+  it('needs a friend, no block, and that friend playing right now', () => {
+    expect(code(checkCable('host', gb(), { ...friend, friends: false }, theirs()))).toBe('not_friends')
+    expect(code(checkCable('host', gb(), { ...friend, blocked: true }, theirs()))).toBe('not_friends')
+    expect(code(checkCable('host', gb(), friend, null))).toBe('not_playing')
+    expect(code(checkCable('host', gb(), friend, theirs({ platform: 'GBA', gameCode: 'BPEE' })))).toBe('not_playing')
+    expect(code(checkCable('host', gb(), { ...friend, id: 'host' }, theirs()))).toBe('self')
+  })
+  it("keeps Japanese and international games apart, as the games can't trade", () => {
+    expect(code(checkCable('host', gb(), friend, theirs({ gameCode: 'APEJ' })))).toBe('language')
+  })
+  it('plugs Gen 3 into Gen 3 (ADR-021), never into a Game Boy game', () => {
+    const gba = theirs({ platform: 'GBA', gameCode: 'BPEE' })
+    expect(checkCable('host', slot({ gameCode: 'AXVP' }), friend, gba)).toBeNull() // European Ruby with US Emerald
+    expect(code(checkCable('host', slot({ gameCode: 'BPEJ' }), friend, gba))).toBe('language')
+    expect(code(checkCable('host', gb(), friend, gba))).toBe('not_playing')
+    expect(cableable('GBA', 'BPEE')).toBe(true)
+  })
+  it('links Gen 1 with Gen 2 (Time Capsule), but not across Korean and international', () => {
+    expect(checkCable('host', gb(), friend, theirs({ gameCode: 'AAUO' }))).toBeNull()
+    expect(code(checkCable('host', gb({ gameCode: 'AAXO' }), friend, theirs({ gameCode: 'AAUK' })))).toBe('language')
+  })
+  it('refuses a game already linked or locked by a trade', () => {
+    expect(code(checkCable('host', gb(), friend, theirs({ otherOpenSessions: 1 })))).toBe('slot_busy')
+    expect(code(checkCable('host', gb({ lockedByTradeId: 't' }), friend, theirs()))).toBe('slot_locked')
+  })
+  it('only the friend who was asked can accept, once', () => {
+    const s = session({ mode: 'CABLE', seats: [seat(0), seat(1, { userId: 'friend' })] })
+    expect(checkAcceptCable(s, 'friend')).toBeNull()
+    expect(code(checkAcceptCable(s, 'host'))).toBe('not_invitee')
+    expect(code(checkAcceptCable(s, 'stranger'))).toBe('not_found')
+    expect(code(checkAcceptCable({ ...s, state: 'ACTIVE' }, 'friend'))).toBe('not_in_lobby')
+    expect(code(checkAcceptCable({ ...s, mode: 'NETWORK' }, 'friend'))).toBe('not_found')
+  })
+})
+
+describe('wireless rooms (FR-35)', () => {
+  const fr = (over: Partial<SlotForSeat> = {}): SlotForSeat => slot({ gameCode: 'BPRE', ...over })
+  const theirs = (over: Partial<SlotForSeat> = {}) => fr({ id: 'theirs', userId: 'friend', gameCode: 'BPEE', ...over })
+  const room = (seats: SeatState[] = [seat(0)], over: Partial<SessionState> = {}) => session({ mode: 'WIRELESS', state: 'ACTIVE', seats, ...over })
+
+  it('takes FireRed, LeafGreen and Emerald only', () => {
+    expect(['BPRE', 'BPGE', 'BPEE'].every((c) => airable('GBA', c))).toBe(true)
+    expect(airable('GBA', 'AXVE')).toBe(false) // Ruby has no wireless
+    expect(airable('GB', 'APAO')).toBe(false)
+  })
+  it('opens a room from my own free game', () => {
+    expect(checkOpenRoom('host', fr())).toBeNull()
+    expect(code(checkOpenRoom('host', slot({ gameCode: 'AXPE' })))).toBe('not_wireless')
+    expect(code(checkOpenRoom('host', fr({ otherOpenSessions: 1 })))).toBe('slot_busy')
+    expect(code(checkOpenRoom('host', fr({ userId: 'p1' })))).toBe('not_found')
+  })
+  it('lists friends playing a wireless game of the same region', () => {
+    expect(checkAirFriend('host', fr(), friend, theirs())).toBeNull()
+    expect(code(checkAirFriend('host', fr(), friend, theirs({ gameCode: 'AXVE' })))).toBe('not_playing')
+    expect(code(checkAirFriend('host', fr(), friend, theirs({ gameCode: 'BPEJ' })))).toBe('language')
+    expect(code(checkAirFriend('host', fr(), { ...friend, blocked: true }, theirs()))).toBe('not_friends')
+  })
+  it('any member invites, up to the room size, never twice', () => {
+    expect(checkRoomInvite(room([seat(0), seat(1)]), 'p1', fr(), friend, theirs())).toBeNull()
+    expect(code(checkRoomInvite(room([seat(0), seat(1, { userId: 'friend', ready: false })]), 'host', fr(), friend, theirs()))).toBe('already_invited')
+    const full = Array.from({ length: MAX_ROOM }, (_, i) => seat(i))
+    expect(code(checkRoomInvite(room(full), 'host', fr(), friend, theirs()))).toBe('full')
+    const leftOne = full.map((x, i) => (i === 4 ? { ...x, left: true } : x))
+    expect(checkRoomInvite(room(leftOne), 'host', fr(), friend, theirs())).toBeNull() // a left seat frees a place
+    expect(code(checkRoomInvite(room([seat(0), seat(1, { left: true })]), 'p1', fr(), friend, theirs()))).toBe('not_found')
+    expect(code(checkRoomInvite(room([seat(0)], { state: 'ENDED' }), 'host', fr(), friend, theirs()))).toBe('room_closed')
+  })
+  it('the invitee joins once; members leave; the host closes instead', () => {
+    const s = room([seat(0), seat(1, { ready: false })])
+    expect(checkJoinRoom(s, 'p1')).toBeNull()
+    expect(code(checkJoinRoom(room(), 'host'))).toBe('already_joined')
+    expect(code(checkJoinRoom(s, 'stranger'))).toBe('not_found')
+    expect(checkLeaveRoom(s, 'p1')).toBeNull() // declining
+    expect(code(checkLeaveRoom(s, 'host'))).toBe('host')
+    expect(code(checkEnd(s, 'p1'))).toBe('not_host')
+    expect(checkEnd(s, 'host')).toBeNull()
   })
 })

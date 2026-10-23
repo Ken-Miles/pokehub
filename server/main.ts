@@ -16,8 +16,10 @@ try {
   /* .env optional */
 }
 
+import { botUser } from '@/lib/bot-auth'
 import { CLIENT_IP_HEADER, resolveClientIp } from '@/lib/client-ip'
 import { env } from '@/lib/env'
+import { attachBotWatch } from '@/lib/bot-watch'
 import { attachLinkRelay } from '@/lib/link-relay'
 import { setIO } from '@/lib/realtime'
 
@@ -53,6 +55,15 @@ async function main() {
 
   // Same session cookie as the app; every socket joins its user's room.
   io.use(async (socket, nextFn) => {
+    // The bot host acting as a bot (FR-36, ADR-023).
+    const auth = socket.handshake.auth as { botKey?: unknown; bot?: unknown }
+    if (auth?.botKey !== undefined) {
+      const bot = await botUser(auth.botKey, auth.bot).catch(() => null)
+      if (!bot) return nextFn(new Error('unauthenticated'))
+      socket.data.userId = bot.id
+      socket.data.bot = bot.username
+      return nextFn()
+    }
     const req = socket.request
     const token = await getToken({
       req: { headers: req.headers, cookies: parseCookies(req.headers.cookie) } as never,
@@ -64,6 +75,7 @@ async function main() {
   })
   io.on('connection', (socket) => socket.join(`user:${socket.data.userId}`))
   attachLinkRelay(io)
+  attachBotWatch(io)
   setIO(io)
 
   server.listen(port, () => {

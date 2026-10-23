@@ -65,3 +65,15 @@ export function fakeSave(seed: number, size = 0x20000): ArrayBuffer {
   for (let i = 0; i < size; i++) b[i] = (i * 31 + seed * 7) & 0xff
   return b.buffer
 }
+
+/** A Game Boy header: logo start, title, destination byte and a valid header checksum. */
+export function fakeGbHeader(title: string, japan = false): Uint8Array {
+  const b = new Uint8Array(0x8000)
+  b.set([0xce, 0xed, 0x66, 0x66], 0x104)
+  b.set(Array.from(title, (c) => c.charCodeAt(0)), 0x134)
+  b[0x14a] = japan ? 0 : 1
+  let chk = 0
+  for (let i = 0x134; i <= 0x14c; i++) chk = (chk - b[i] - 1) & 0xff
+  b[0x14d] = chk
+  return b
+}

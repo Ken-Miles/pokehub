@@ -22,6 +22,9 @@ export interface ParsedSave {
   family: SaveFamily
   /** Game version the save was made in, e.g. OR — how 3DS slots identify their game. */
   version: string
+  /** Game Boy: Japanese, Korean and international saves never mix (they can't link). */
+  japanese: boolean
+  korean: boolean
   trainer: { name: string; tid: number; sid: number }
   playSeconds: number
   pokemon: ParsedPokemon[]

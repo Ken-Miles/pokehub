@@ -1,13 +1,23 @@
 /*
  * Pokémon Hub's emulator page: our mGBA WebAssembly build (ADR-011) with
- * 1–4 GBAs, linked by an in-memory cable when there is more than one (ADR-018).
+ * 1–4 GBAs, linked by an in-memory cable when there is more than one (ADR-018),
+ * or one GB/GBA whose cable runs over the network (ADR-020, ADR-021).
  *
  * The parent page drives every frame, so solo play and lockstep link play are
  * the same loop (lib/client/emulator.ts):
  *
- * parent → iframe   { type: 'boot', games: [{ rom, save, patch }], local: [core…], audioFrom, rtc: { mode: 'wall' } | { mode: 'fixed', epochMs } }
+ * parent → iframe   { type: 'boot', platform: 'GBA' | 'GB' (default 'GBA'), games: [{ rom, save, patch }], local: [core…], audioFrom, rtc: { mode: 'wall' } | { mode: 'fixed', epochMs } }
  *                   { type: 'frame', count, inputs?: number[], hash?: boolean }
- *                       inputs = GBA key bits per core (lockstep); without it, each local core reads this page's devices
+ *                       inputs = key bits per core (lockstep); without it, each local core reads this page's devices
+ *                   { type: 'cable-plug', on: boolean, seat?, delay? } — one game: plug the network cable in/out (plugged = linked, no states)
+ *                       GBA also needs seat (0 = parent, 1 = child) and the parent's delay in frames (1–30)
+ *                   { type: 'cable', k, b, n } — the peer's cable message; n = its sequence number (from 1 per plug-in)
+ *                       GB:  k 0 = ready, 1 = clock; b = byte
+ *                       GBA: k 2 = pair (to the child; b = parent word | child word << 16), 3 = frame end (b 0),
+ *                            4 = word (to the parent; b = the child's 16-bit word)
+ *                   { type: 'air-plug', on: boolean, seat } — GBA: turn the wireless adapter on/off as room seat 0–15 (on = linked, no states)
+ *                     quiet: true with on: false — out of the room: the adapter stays plugged in with nobody in range
+ *                   { type: 'air', op, from, d: number[] } — a message from the adapter in room seat `from` (op 1–7, d ≤ 24 words)
  *                   { type: 'pause' } | { type: 'resume' }
  *                   { type: 'flush' } — "Sync now": read save RAM immediately
  *                   { type: 'clear-states' } — the cloud save changed elsewhere (ADR-016)
@@ -18,6 +28,11 @@
  *                   { type: 'save', core, bytes: ArrayBuffer, sha256: string }
  *                   { type: 'unchanged' } — answer to a flush with nothing new
  *                   { type: 'controls', keys: [{ id, key, pad }], players: number }
+ *                   { type: 'cable', k, b, n } — one per outgoing cable message, posted after each frame message
+ *                   'framed' also carries waiting: true when a GBA cable parent held a frame back for its child
+ *                   { type: 'air', op, to, d: number[] } — one per message from this page's wireless adapter, after each
+ *                       frame message; to = a room seat, or 255 = everyone in the room
+ *                       op 1 beacon, 2 beacon off, 3 join, 4 accept, 5 reject, 6 data, 7 leave
  *
  * Game files arrive as bytes from the parent and never leave this page. Save
  * states live only in this page's memory, and not at all while linked: a state
@@ -29,11 +44,9 @@
   var origin = location.origin
   var POLL_MS = 2000
   var STATE_SLOTS = 9
-  var W = 240
-  var H = 160
   var AUDIO_STORAGE_KEY = 'pokehub.audio.v1'
 
-  // GBA key register bits.
+  // GBA key register bits (a Game Boy uses the first eight).
   var BITS = { a: 0, b: 1, select: 2, start: 3, right: 4, left: 5, up: 6, down: 7, r: 8, l: 9 }
   // KeyboardEvent.code per action; hotkeys after the GBA buttons.
   var DEFAULT_KEYS = {
@@ -54,6 +67,9 @@
   var cores = 0
   var local = [] // cores this page plays, in player order
   var linked = false
+  var cablePlugged = false
+  var airOn = false // the adapter is plugged in
+  var airRoom = false // and in a room
   var paused = false
   var keys = Object.assign({}, DEFAULT_KEYS)
   var held = {} // KeyboardEvent.code → true
@@ -188,14 +204,15 @@
     var root = document.getElementById('screens')
     root.className = local.length > 1 ? 'split' : ''
     screens = local.map(function (core, i) {
+      var size = hub._hub_video_size(core)
       var canvas = document.createElement('canvas')
-      canvas.width = W
-      canvas.height = H
+      canvas.width = size >>> 16
+      canvas.height = size & 0xffff
       canvas.tabIndex = 0
       canvas.setAttribute('aria-label', local.length > 1 ? 'Player ' + (i + 1) : 'Game screen')
       root.appendChild(canvas)
       var ctx = canvas.getContext('2d')
-      return { core: core, ctx: ctx, image: ctx.createImageData(W, H) }
+      return { core: core, ctx: ctx, image: ctx.createImageData(canvas.width, canvas.height) }
     })
     if (screens[0]) screens[0].ctx.canvas.focus()
   }
@@ -204,7 +221,7 @@
     for (var i = 0; i < screens.length; i++) {
       var s = screens[i]
       var ptr = hub._hub_video(s.core)
-      s.image.data.set(hub.HEAPU8.subarray(ptr, ptr + W * H * 4))
+      s.image.data.set(hub.HEAPU8.subarray(ptr, ptr + s.image.data.length))
       s.ctx.putImageData(s.image, 0, 0)
     }
   }
@@ -364,7 +381,7 @@
       local = msg.local
       linked = cores > 1
       var rtc = msg.rtc && msg.rtc.mode === 'fixed' ? msg.rtc.epochMs : 0
-      if (!hub._hub_init(cores, audio ? audio.rate : 48000, msg.rtc && msg.rtc.mode === 'fixed' ? 1 : 0, rtc)) {
+      if (!hub._hub_init(msg.platform === 'GB' ? 1 : 0, cores, audio ? audio.rate : 48000, msg.rtc && msg.rtc.mode === 'fixed' ? 1 : 0, rtc)) {
         throw new Error('The emulator could not start.')
       }
       for (var i = 0; i < cores; i++) {
@@ -399,6 +416,7 @@
     if (!hub || paused) return post({ type: 'framed', local: sampleLocal(), stalls: 0, skipped: true })
     var count = Math.max(1, Math.min(msg.count | 0, 8))
     var catchingUp = count > 1
+    var waiting = false
     for (var n = 0; n < count; n++) {
       if (msg.inputs) {
         for (var c = 0; c < cores; c++) hub._hub_set_keys(c, msg.inputs[c] | 0)
@@ -406,7 +424,10 @@
         var mine = sampleLocal()
         for (var l = 0; l < local.length; l++) hub._hub_set_keys(local[l], mine[l])
       }
-      hub._hub_run_frame()
+      if (!hub._hub_run_frame()) {
+        waiting = true // a GBA cable parent waits for its child; the frame is dropped, not owed
+        break
+      }
       pushAudio(catchingUp && n < count - 1)
     }
     draw()
@@ -416,7 +437,70 @@
       stalls: hub._hub_stalls(),
     }
     if (msg.hash) reply.hash = hub._hub_hash()
+    if (waiting) reply.waiting = true
     post(reply)
+    if (airOn) postAir()
+    if (cablePlugged) {
+      var out = hub._hub_cable_take() >> 2
+      for (var m = 0; m < hub.HEAPU32[out]; m++) {
+        var at = out + 1 + m * 3
+        post({ type: 'cable', k: hub.HEAPU32[at], b: hub.HEAPU32[at + 1], n: hub.HEAPU32[at + 2] })
+      }
+    }
+  }
+
+  function plugCable(on, m) {
+    if (!hub || !hub._hub_cable_plug(on ? 1 : 0, m.seat | 0, m.delay | 0)) return
+    cablePlugged = on
+    linked = on || airRoom
+    if (on) states = {} // a state loaded mid-trade could undo it
+  }
+
+  function postAir() {
+    var air = hub._hub_air_take() >> 2
+    var at = air + 1
+    for (var a = 0; a < hub.HEAPU32[air]; a++) {
+      var len = hub.HEAPU32[at + 2]
+      post({ type: 'air', op: hub.HEAPU32[at], to: hub.HEAPU32[at + 1], d: Array.from(hub.HEAPU32.subarray(at + 3, at + 3 + len)) })
+      at += 3 + len
+    }
+    traceAir()
+  }
+
+  // Real games aren't proven against the emulated adapter yet (ADR-022): when the game
+  // stops it (link errors included) or it refuses a command, print what led up to it.
+  var AIR_OPS = ['', 'beacon', 'beacon off', 'join', 'accept', 'reject', 'data', 'leave']
+  function traceAir() {
+    var t = hub._hub_air_trace() >> 2
+    if (!t) return
+    var hex = function (n) { return '0x' + (n >>> 0).toString(16) }
+    var lines = []
+    for (var i = 0, at = t + 1; i < hub.HEAPU32[t]; i++, at += 4) {
+      var what = hub.HEAPU32[at + 1]
+      var detail = hub.HEAPU32[at + 3]
+      lines.push('frame ' + hub.HEAPU32[at] + ' state ' + hub.HEAPU32[at + 2] + ': ' +
+        (what >= 0xee00 ? 'command ' + hex(what & 0xff) + ' REFUSED, code ' + detail
+          : what >= 0x100 ? AIR_OPS[what - 0x100] + ' from seat ' + detail
+          : what === 0x29 ? 'woke the game: disconnected ' + hex(detail)
+          : 'command ' + hex(what) + ' → ' + hex(detail)))
+    }
+    console.warn('[wireless adapter] recent events (state 0 idle, 1–2 hosting, 3 searching, 4 connecting, 5 connected):\n' + lines.join('\n'))
+  }
+
+  function plugAir(on, m) {
+    if (!hub || !hub._hub_air_plug(on ? 1 : m.quiet ? 2 : 0, m.seat | 0)) return
+    if (!on) postAir() // the adapter's goodbyes to anyone it was connected to
+    if (on || !m.quiet) airOn = on // quiet: still plugged in, with nobody in range
+    airRoom = on
+    linked = on || cablePlugged
+    if (on) states = {} // a state loaded mid-trade could undo it
+  }
+
+  function putAir(m) {
+    if (!airOn || !Array.isArray(m.d) || m.d.length > 24 || !Number.isInteger(m.op) || !Number.isInteger(m.from)) return
+    var inbox = hub._hub_air_inbox() >> 2
+    for (var i = 0; i < m.d.length; i++) hub.HEAPU32[inbox + i] = m.d[i] >>> 0
+    hub._hub_air_put(m.op, m.from, m.d.length)
   }
 
   function setPaused(value) {
@@ -448,6 +532,13 @@
     else if (m.type === 'resume') setPaused(false)
     else if (m.type === 'flush') poll(true)
     else if (m.type === 'clear-states') states = {}
+    else if (m.type === 'cable-plug') plugCable(!!m.on, m)
+    else if (m.type === 'air-plug') plugAir(!!m.on, m)
+    else if (m.type === 'air') putAir(m)
+    else if (m.type === 'cable') {
+      var valid = Number.isInteger(m.k) && m.k >= 0 && m.k <= 4 && Number.isInteger(m.b) && m.b >= 0 && m.b <= 0xffffffff
+      if (cablePlugged && valid && Number.isInteger(m.n) && m.n > 0) hub._hub_cable_put(m.k, m.b, m.n)
+    }
     else if (m.type === 'bind' && ACTIONS.indexOf(m.action) >= 0 && typeof m.code === 'string') {
       for (var a in keys) if (keys[a] === m.code) keys[a] = null // one action per key
       keys[m.action] = m.code

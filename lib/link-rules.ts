@@ -33,6 +33,8 @@ export interface SeatState {
   romSha1: string | null
   coreBuild: string | null
   ready: boolean
+  /** Left a wireless room that kept running. */
+  left?: boolean
 }
 
 export interface SlotForSeat {
@@ -81,6 +83,132 @@ export function checkAddOwnSeat(s: SessionState, actorId: string): Rejection | n
   if (s.hostId !== actorId) return reject(403, 'not_host', 'Only the host can add games.')
   if (s.mode !== 'SAME_DEVICE') return reject(409, 'network', 'Invite friends to a network session instead.')
   if (nextSeat(s) === null) return reject(409, 'full', `A link cable joins at most ${MAX_SEATS} games.`)
+  return null
+}
+
+// ---------------------------------------------------------------- link cable (FR-34, ADR-020, ADR-021)
+
+/**
+ * Games that take the network link cable, where each player runs only their own
+ * game: Gen 1 and Gen 2 on Game Boy (linked through the Time Capsule), and Gen 3
+ * on Game Boy Advance. A cable joins two games of the same platform.
+ */
+export function cableable(platform: Platform, gameCode: string): boolean {
+  const game = identifyGame(platform, gameCode)
+  return !!game && game.playable && ((game.platform === 'GB' && game.generation <= 2) || (game.platform === 'GBA' && game.generation === 3))
+}
+
+/** Japan and Korea each trade only among themselves; every other language links with the rest. */
+const region = (code: string) => (code.at(-1) === 'J' || code.at(-1) === 'K' ? code.at(-1) : 'other')
+
+/**
+ * Plug my running game into a friend's. `theirs` is the slot their play page is
+ * running right now (null: they aren't playing). Japanese, Korean and international
+ * games can't trade (the data differs), so their regions must match.
+ */
+export function checkCable(
+  me: string,
+  mine: SlotForSeat,
+  friend: { id: string; friends: boolean; blocked: boolean },
+  theirs: SlotForSeat | null,
+): Rejection | null {
+  if (mine.userId !== me || mine.deletedAt) return reject(404, 'not_found', 'Slot not found.')
+  if (!cableable(mine.platform, mine.gameCode)) return reject(422, 'not_cable', 'Only Game Boy and Game Boy Advance Pokémon games have a link cable.')
+  if (friend.id === me) return reject(409, 'self', "You can't link with yourself.")
+  if (!friend.friends || friend.blocked) return reject(403, 'not_friends', 'You can only link with friends.')
+  if (!theirs || theirs.userId !== friend.id || theirs.deletedAt || theirs.platform !== mine.platform || !cableable(theirs.platform, theirs.gameCode))
+    return reject(409, 'not_playing', "That friend isn't playing a game your cable fits right now.")
+  if (region(mine.gameCode) !== region(theirs.gameCode))
+    return reject(409, 'language', "Games from different regions (Japan, Korea, the rest) can't link with each other.")
+  if (mine.lockedByTradeId || theirs.lockedByTradeId) return reject(423, 'slot_locked', 'A save is locked while a trade finishes.')
+  if (mine.otherOpenSessions > 0 || theirs.otherOpenSessions > 0) return reject(409, 'slot_busy', 'One of the games is already linked.')
+  return null
+}
+
+/** Only the player who was asked can plug the cable in, and only once. */
+export function checkAcceptCable(s: SessionState, actorId: string): Rejection | null {
+  if (s.mode !== 'CABLE' || !s.seats.some((x) => x.userId === actorId)) return reject(404, 'not_found', 'Link request not found.')
+  if (s.state !== 'LOBBY') return reject(409, 'not_in_lobby', 'This link request was already answered.')
+  if (s.seats.find((x) => x.seat === 1)?.userId !== actorId) return reject(403, 'not_invitee', 'Only the friend you asked can accept.')
+  return null
+}
+
+// ---------------------------------------------------------------- wireless rooms (FR-35, ADR-022)
+
+/**
+ * Adapters in range of each other (ADR-024). Not the link size: a linked group is
+ * a host and at most 4 children, which the emulated adapter enforces as the
+ * hardware does, and each game caps its own activities below that.
+ */
+export const MAX_ROOM = 16
+
+/** Gen 3 games with the Wireless Adapter: FireRed, LeafGreen and Emerald (not Ruby or Sapphire). */
+export function airable(platform: Platform, gameCode: string): boolean {
+  return cableable(platform, gameCode) && platform === 'GBA' && ['BPE', 'BPR', 'BPG'].includes(gameCode.slice(0, 3))
+}
+
+const present = (x: SeatState) => x.ready && !x.left
+const pending = (x: SeatState) => !x.ready && !x.left
+
+/** Turn my adapter on: a new room with my running game in seat 0. */
+export function checkOpenRoom(me: string, mine: SlotForSeat): Rejection | null {
+  if (mine.userId !== me || mine.deletedAt) return reject(404, 'not_found', 'Slot not found.')
+  if (!airable(mine.platform, mine.gameCode)) return reject(422, 'not_wireless', 'Only FireRed, LeafGreen and Emerald have the Wireless Adapter.')
+  if (mine.lockedByTradeId) return reject(423, 'slot_locked', 'This save is locked while a trade finishes.')
+  if (mine.otherOpenSessions > 0) return reject(409, 'slot_busy', 'This game is already linked.')
+  return null
+}
+
+/** Is this friend's running game one my room could invite? (The online list; `busy` = linked elsewhere.) */
+export function checkAirFriend(
+  me: string,
+  mine: SlotForSeat,
+  friend: { id: string; friends: boolean; blocked: boolean },
+  theirs: SlotForSeat | null,
+): Rejection | null {
+  if (friend.id === me) return reject(409, 'self', "You're already in your room.")
+  if (!friend.friends || friend.blocked) return reject(403, 'not_friends', 'You can only invite friends.')
+  if (!theirs || theirs.userId !== friend.id || theirs.deletedAt || !airable(theirs.platform, theirs.gameCode))
+    return reject(409, 'not_playing', "That friend isn't playing FireRed, LeafGreen or Emerald right now.")
+  if (region(mine.gameCode) !== region(theirs.gameCode))
+    return reject(409, 'language', "Games from different regions (Japan, the rest) can't link with each other.")
+  if (theirs.lockedByTradeId) return reject(423, 'slot_locked', "That friend's save is locked while a trade finishes.")
+  if (theirs.otherOpenSessions > 0) return reject(409, 'slot_busy', 'That friend is already linked.')
+  return null
+}
+
+/** Any member may invite an online friend into a running room of at most MAX_ROOM. */
+export function checkRoomInvite(
+  s: SessionState,
+  actorId: string,
+  mine: SlotForSeat,
+  friend: { id: string; friends: boolean; blocked: boolean },
+  theirs: SlotForSeat | null,
+): Rejection | null {
+  if (s.mode !== 'WIRELESS') return reject(404, 'not_found', 'Room not found.')
+  if (!s.seats.some((x) => x.userId === actorId && present(x))) return reject(404, 'not_found', 'Room not found.')
+  if (s.state !== 'ACTIVE') return reject(409, 'room_closed', 'This room is closed.')
+  if (s.seats.some((x) => x.userId === friend.id && (present(x) || pending(x)))) return reject(409, 'already_invited', 'That friend is already in the room.')
+  const problem = checkAirFriend(actorId, mine, friend, theirs)
+  if (problem) return problem
+  if (s.seats.filter((x) => present(x) || pending(x)).length >= MAX_ROOM) return reject(409, 'full', `A room holds at most ${MAX_ROOM} players.`)
+  return null
+}
+
+/** The invited friend joins (only once, while the room runs). */
+export function checkJoinRoom(s: SessionState, actorId: string): Rejection | null {
+  const mine = s.seats.find((x) => x.userId === actorId && !x.left)
+  if (s.mode !== 'WIRELESS' || !mine) return reject(404, 'not_found', 'Room invite not found.')
+  if (s.state !== 'ACTIVE') return reject(409, 'room_closed', 'This room is closed.')
+  if (mine.ready) return reject(409, 'already_joined', "You're already in this room.")
+  return null
+}
+
+/** A member leaves (or an invitee declines); the host closes the room instead. */
+export function checkLeaveRoom(s: SessionState, actorId: string): Rejection | null {
+  if (s.mode !== 'WIRELESS' || !s.seats.some((x) => x.userId === actorId && !x.left)) return reject(404, 'not_found', 'Room not found.')
+  if (s.state !== 'ACTIVE') return reject(409, 'room_closed', 'This room is closed.')
+  if (s.hostId === actorId) return reject(409, 'host', 'Close the room instead.')
   return null
 }
 
@@ -133,5 +261,6 @@ export type EndReason = 'ended' | 'left' | 'disconnected' | 'desync' | 'expired'
 export function checkEnd(s: SessionState, actorId: string): Rejection | null {
   if (!s.seats.some((x) => x.userId === actorId) && s.hostId !== actorId) return reject(404, 'not_found', 'Link session not found.')
   if (s.state === 'ENDED') return reject(409, 'ended', 'This link session has already ended.')
+  if (s.mode === 'WIRELESS' && s.hostId !== actorId) return reject(403, 'not_host', 'Only the host can close the room. Leave it instead.')
   return null
 }

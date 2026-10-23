@@ -19,6 +19,87 @@
     }
   ],
   "hashes": {
+    "GB": {
+      "AAUJ": [
+        "8814f1039450a5d3684b1389f588ccd7ee7c3436",
+        "a222402235d484ee8e39f3f31bae57cf13daf585"
+      ],
+      "AAUK": [
+        "c0ff3999e1093e1af59ef3eea3f1bfd7c1f18a65"
+      ],
+      "AAUO": [
+        "162ea54c6a3cff374642e6dd842f9bffac847e7b",
+        "d8b8a3600a465308c9953dfa04f0081c05bdcb94",
+        "9254195d461ea942eaaa08cc4b83de3cf82aea0d",
+        "c147c0d8c2b71b7628a7233436f5c052b5b17081",
+        "032608fe8947b627584a4a0eccc7bf9ad3588426"
+      ],
+      "AAXJ": [
+        "fa8c51059c1642faa570db56ef089f54d1d2011f",
+        "a11d5ddc26eb826086593f82370b15d16404d33e"
+      ],
+      "AAXK": [
+        "cb22d7e03a74dc3a563fde6be8626626b2b392e7"
+      ],
+      "AAXO": [
+        "05bd978ab2cb104b0aff3f696896e30885203a18",
+        "8ecc58d621faaedf2a934bd2583d527220df7bb9",
+        "49b163f7e57702bc939d642a18f591de55d92dae",
+        "a4a7e8079b7a53e4d9ef43382bbb1090b9d45d1a",
+        "c9eca9d0a837beb9137bb7d779e469c54e9f8d77"
+      ],
+      "APAJ": [
+        "0623ad12f48c259447980d68bd85ddbf8204b2cd",
+        "ef74c79cded14204ac79e77f4964d9cb25003120"
+      ],
+      "APAO": [
+        "fc17c5b904d551b1b908054ccd1c493f755f832a",
+        "ea9bcae617fdf159b045185467ae58b2e4a48b9a",
+        "87d523fe1a0c548db7c5477b451ddec1eb083c06",
+        "47a7622fa30e6402a3891fe65b3a930bf9bd7aec",
+        "65b97cf8f2f1cff711a6d08c6c894c8ce65ce522"
+      ],
+      "APEJ": [
+        "0da501e3e5c51ab8fef55b092dcdd7e6b050e424"
+      ],
+      "APEO": [
+        "20e72dc6f41493eee1fdd0cef54214e6c3389688",
+        "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2",
+        "7715e7b133e8634df48918b9138374110212a108",
+        "47faa910d0e073c600665bf9c83b6bd17babdf8a",
+        "f69ed1a1332f04c24c7db899a09019bb045fa8b3"
+      ],
+      "APGJ": [
+        "82c0eef40a5e2423699d9fd8ba15dfaa8b51d196",
+        "4b97cd44aa3f0dd290bfe7b3ac17b7bd8270897b"
+      ],
+      "APSJ": [
+        "1fb6c264e950d97ce3fd99b347e485b2150df4ff",
+        "28e4b8531ea4ea1de5a396fccb0cfba51b06b149",
+        "91864ecdf26d1c593bde4d9ed615520eb57d5e41",
+        "a40298a8123613ee60cd7aab204d788b8425976e"
+      ],
+      "APSO": [
+        "1dc242039218fba50928d1afb66b70565b6b9daf",
+        "42f3714eec6eca25200d42461ff08d57c98f6d1d",
+        "0aceec0ef7aa2ca5aa831554598d91f61a925591",
+        "05bb8e99f24d498613930949730afa8024e77d08",
+        "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1"
+      ],
+      "BYTJ": [
+        "95127b901bbce2407daf43cce9f45d4c27ef635d",
+        "9a2b381a134bb7ed1b566bb6f94596b57e690a4e"
+      ],
+      "BYTO": [
+        "a0fc810f1d4e124434f7be2c989ab5b5892ddf36",
+        "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133",
+        "f2f52230b536214ef7c9924f483392993e226cfb",
+        "889a06fc0bb863666865aa69def0adf97945ac2a",
+        "accb584293ba056152f1fd908439b019017ff2fe",
+        "c055992b16b7399c687647725cdd1f4f13a2f75c",
+        "6cee05e5b95beeae74b8365ad18ec4a07a8c4af8"
+      ]
+    },
     "GBA": {
       "AXPD": [
         "5a087835009d552d4c5c1f96be3be3206e378153",
@@ -336,6 +417,30 @@
     }
   },
   "names": {
+    "0623ad12f48c259447980d68bd85ddbf8204b2cd": "Pocket Monsters - Aka (Japan) (SGB Enhanced)",
+    "ef74c79cded14204ac79e77f4964d9cb25003120": "Pocket Monsters - Aka (Japan) (Rev 1) (SGB Enhanced)",
+    "0da501e3e5c51ab8fef55b092dcdd7e6b050e424": "Pocket Monsters - Ao (Japan) (SGB Enhanced)",
+    "82c0eef40a5e2423699d9fd8ba15dfaa8b51d196": "Pocket Monsters - Midori (Japan) (SGB Enhanced)",
+    "4b97cd44aa3f0dd290bfe7b3ac17b7bd8270897b": "Pocket Monsters - Midori (Japan) (Rev 1) (SGB Enhanced)",
+    "1fb6c264e950d97ce3fd99b347e485b2150df4ff": "Pocket Monsters - Pikachu (Japan) (SGB Enhanced)",
+    "28e4b8531ea4ea1de5a396fccb0cfba51b06b149": "Pocket Monsters - Pikachu (Japan) (Rev 1) (SGB Enhanced)",
+    "91864ecdf26d1c593bde4d9ed615520eb57d5e41": "Pocket Monsters - Pikachu (Japan) (Rev 2) (SGB Enhanced)",
+    "a40298a8123613ee60cd7aab204d788b8425976e": "Pocket Monsters - Pikachu (Japan) (Rev 3) (SGB Enhanced)",
+    "20e72dc6f41493eee1fdd0cef54214e6c3389688": "Pokemon - Blaue Edition (Germany) (SGB Enhanced)",
+    "d7037c83e1ae5b39bde3c30787637ba1d4c48ce2": "Pokemon - Blue Version (USA, Europe) (SGB Enhanced)",
+    "1dc242039218fba50928d1afb66b70565b6b9daf": "Pokemon - Edicion Amarilla - Edicion Especial Pikachu (Spain) (CGB+SGB Enhanced)",
+    "7715e7b133e8634df48918b9138374110212a108": "Pokemon - Edicion Azul (Spain) (SGB Enhanced)",
+    "fc17c5b904d551b1b908054ccd1c493f755f832a": "Pokemon - Edicion Roja (Spain) (SGB Enhanced)",
+    "42f3714eec6eca25200d42461ff08d57c98f6d1d": "Pokemon - Gelbe Edition - Special Pikachu Edition (Germany) (CGB+SGB Enhanced)",
+    "ea9bcae617fdf159b045185467ae58b2e4a48b9a": "Pokemon - Red Version (USA, Europe) (SGB Enhanced)",
+    "87d523fe1a0c548db7c5477b451ddec1eb083c06": "Pokemon - Rote Edition (Germany) (SGB Enhanced)",
+    "47faa910d0e073c600665bf9c83b6bd17babdf8a": "Pokemon - Version Bleue (France) (SGB Enhanced)",
+    "0aceec0ef7aa2ca5aa831554598d91f61a925591": "Pokemon - Version Jaune - Edition Speciale Pikachu (France) (CGB+SGB Enhanced)",
+    "47a7622fa30e6402a3891fe65b3a930bf9bd7aec": "Pokemon - Version Rouge (France) (SGB Enhanced)",
+    "f69ed1a1332f04c24c7db899a09019bb045fa8b3": "Pokemon - Versione Blu (Italy) (SGB Enhanced)",
+    "05bb8e99f24d498613930949730afa8024e77d08": "Pokemon - Versione Gialla - Speciale Edizione Pikachu (Italy) (CGB+SGB Enhanced)",
+    "65b97cf8f2f1cff711a6d08c6c894c8ce65ce522": "Pokemon - Versione Rossa (Italy) (SGB Enhanced)",
+    "cc7d03262ebfaf2f06772c1a480c7d9d5f4a38e1": "Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (CGB+SGB Enhanced)",
     "d7cf8f156ba9c455d164e1ea780a6bf1945465c2": "Pocket Monsters - Emerald (Japan)",
     "04139887b6cd8f53269aca098295b006ddba6cfe": "Pocket Monsters - FireRed (Japan)",
     "7c7107b87c3ccf6e3dbceb9cf80ceeffb25a1857": "Pocket Monsters - FireRed (Japan) (Rev 1)",
@@ -386,6 +491,31 @@
     "a1dfea1493d26d1f024be8ba1de3d193fcfc651e": "Pokemon - Versione Verde Foglia (Italy)",
     "f729dd571fb2c09e72c5c1d68fe0a21e72713d34": "Pokemon - Versione Zaffiro (Italy)",
     "73edf67b9b82ff12795622dca412733755d2c0fe": "Pokemon - Versione Zaffiro (Italy) (Rev 1)",
+    "95127b901bbce2407daf43cce9f45d4c27ef635d": "Pocket Monsters - Crystal Version (Japan)",
+    "9a2b381a134bb7ed1b566bb6f94596b57e690a4e": "Pocket Monsters - Crystal Version (Taiwan) (Unl)",
+    "cb22d7e03a74dc3a563fde6be8626626b2b392e7": "Pocket Monsters Eun (Korea)",
+    "c0ff3999e1093e1af59ef3eea3f1bfd7c1f18a65": "Pocket Monsters Geum (Korea)",
+    "fa8c51059c1642faa570db56ef089f54d1d2011f": "Pocket Monsters Gin (Japan) (SGB Enhanced) (GB Compatible)",
+    "a11d5ddc26eb826086593f82370b15d16404d33e": "Pocket Monsters Gin (Japan) (Rev 1) (SGB Enhanced) (GB Compatible)",
+    "8814f1039450a5d3684b1389f588ccd7ee7c3436": "Pocket Monsters Kin (Japan) (SGB Enhanced) (GB Compatible)",
+    "a222402235d484ee8e39f3f31bae57cf13daf585": "Pocket Monsters Kin (Japan) (Rev 1) (SGB Enhanced) (GB Compatible)",
+    "a0fc810f1d4e124434f7be2c989ab5b5892ddf36": "Pokemon - Crystal Version (Australia)",
+    "f4cd194bdee0d04ca4eac29e09b8e4e9d818c133": "Pokemon - Crystal Version (USA)",
+    "f2f52230b536214ef7c9924f483392993e226cfb": "Pokemon - Crystal Version (USA, Europe) (Rev 1)",
+    "889a06fc0bb863666865aa69def0adf97945ac2a": "Pokemon - Edicion Cristal (Spain)",
+    "162ea54c6a3cff374642e6dd842f9bffac847e7b": "Pokemon - Edicion Oro (Spain) (SGB Enhanced) (GB Compatible)",
+    "05bd978ab2cb104b0aff3f696896e30885203a18": "Pokemon - Edicion Plata (Spain) (SGB Enhanced) (GB Compatible)",
+    "d8b8a3600a465308c9953dfa04f0081c05bdcb94": "Pokemon - Gold Version (USA, Europe) (SGB Enhanced) (GB Compatible)",
+    "9254195d461ea942eaaa08cc4b83de3cf82aea0d": "Pokemon - Goldene Edition (Germany) (SGB Enhanced) (GB Compatible)",
+    "accb584293ba056152f1fd908439b019017ff2fe": "Pokemon - Kristall-Edition (Germany)",
+    "8ecc58d621faaedf2a934bd2583d527220df7bb9": "Pokemon - Silberne Edition (Germany) (SGB Enhanced) (GB Compatible)",
+    "49b163f7e57702bc939d642a18f591de55d92dae": "Pokemon - Silver Version (USA, Europe) (SGB Enhanced) (GB Compatible)",
+    "a4a7e8079b7a53e4d9ef43382bbb1090b9d45d1a": "Pokemon - Version Argent (France) (SGB Enhanced) (GB Compatible)",
+    "c055992b16b7399c687647725cdd1f4f13a2f75c": "Pokemon - Version Cristal (France)",
+    "c147c0d8c2b71b7628a7233436f5c052b5b17081": "Pokemon - Version Or (France) (SGB Enhanced) (GB Compatible)",
+    "c9eca9d0a837beb9137bb7d779e469c54e9f8d77": "Pokemon - Versione Argento (Italy) (SGB Enhanced) (GB Compatible)",
+    "6cee05e5b95beeae74b8365ad18ec4a07a8c4af8": "Pokemon - Versione Cristallo (Italy)",
+    "032608fe8947b627584a4a0eccc7bf9ad3588426": "Pokemon - Versione Oro (Italy) (SGB Enhanced) (GB Compatible)",
     "4ce46933ab795fc8bfc94acb7a853206b0c20b60": "Pocket Monsters - Black (Japan) (NDSi Enhanced)",
     "ca64de49a4429346ca578c2b21c16c8bcf1cf497": "Pocket Monsters - Black (Korea) (NDSi Enhanced)",
     "c55fe4412427e63ef28186af53ec114c7fdd9a0a": "Pocket Monsters - Black 2 (Japan) (Rev 1) (NDSi Enhanced)",

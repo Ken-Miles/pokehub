@@ -125,7 +125,7 @@ function NewSlot({ busy, onCreate }: { busy: boolean; onCreate: (o: 'NEW' | 'IMP
           <input type="radio" checked={mode === 'IMPORTED'} onChange={() => setMode('IMPORTED')} /> Import an existing save
         </label>
       </div>
-      <FileDrop label="Your game backup (.gba)" hint="Stays on this device — click to choose, or drop it here" accept=".gba" file={rom} onFile={setRom} />
+      <FileDrop label="Your game backup (.gb or .gba)" hint="Stays on this device — click to choose, or drop it here" accept=".gb,.gba" file={rom} onFile={setRom} />
       {mode === 'IMPORTED' && (
         <FileDrop
           label="Save file (.sav)"

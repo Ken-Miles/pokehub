@@ -1,6 +1,14 @@
 'use client'
 
+import hashes from '@/data/rom-hashes.json'
 import { PLATFORMS, identifyGame, readRomHeader, type GameInfo, type Platform } from '@/lib/games'
+
+// Gen 1 headers carry no game code, so the dump itself says which game it is.
+const gbCodes = new Map(
+  Object.entries((hashes as { hashes: { GB?: Record<string, string[]> } }).hashes.GB ?? {}).flatMap(([code, sha1s]) =>
+    sha1s.map((sha1) => [sha1, code] as const),
+  ),
+)
 
 export interface InspectedRom {
   bytes: ArrayBuffer
@@ -19,14 +27,16 @@ async function sha1Hex(bytes: ArrayBuffer): Promise<string> {
 export async function inspectRom(file: Blob): Promise<InspectedRom> {
   const bytes = await file.arrayBuffer()
   const header = readRomHeader(new Uint8Array(bytes))
-  if (!header) throw new Error("That file isn't a Game Boy Advance or DS game.")
-  const game = identifyGame(header.platform, header.code)
-  if (!game) throw new Error(`"${header.title}" (${header.code}) isn't a supported Pokémon game.`)
+  if (!header) throw new Error("That file isn't a Game Boy, Game Boy Advance or DS game.")
+  const sha1 = await sha1Hex(bytes)
+  const code = (header.platform === 'GB' && gbCodes.get(sha1)) || header.code
+  const game = identifyGame(header.platform, code)
+  if (!game) throw new Error(`"${header.title}"${code ? ` (${code})` : ''} isn't a supported Pokémon game.`)
   if (!game.playable) {
     const info = PLATFORMS[header.platform]
     throw new Error(`Pokémon ${game.name} is a ${info.name} game. Those are planned for ${info.phase}.`)
   }
-  return { bytes, platform: header.platform, code: header.code, sha1: await sha1Hex(bytes), game }
+  return { bytes, platform: header.platform, code, sha1, game }
 }
 
 // ---- optional "remember this game on this device" (FR-04). IndexedDB, this browser only.

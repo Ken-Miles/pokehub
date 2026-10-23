@@ -94,8 +94,7 @@ const commands: Record<string, (...a: string[]) => Promise<void>> = {
   async list() {
     if (!bots.size) return console.log('  no bots yet')
     for (const b of bots.values()) {
-      const state = !b.running ? 'off' : b.cable ? `cable to ${b.cable.with}` : b.air ? `wireless seat ${b.air.seat}${b.air.host ? ' (host)' : ''}` : 'on'
-      console.log(`  ${b.name}  ${state}${b.game ? `  ${b.game.code}` : ''}${b.running ? `  frame ${b.frames}` : ''}`)
+      console.log(`  ${b.name}  ${b.status}`)
     }
   },
 

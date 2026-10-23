@@ -1,7 +1,8 @@
 import { inspectRom } from '@/lib/client/rom'
 import { SaveSync, hasGbaRomHeader, romCheck, saveProblem } from '@/lib/client/save-sync'
+import { dropProblem } from '@/lib/dropbox-rules'
 import { MAX_SAVE_BYTES } from '@/lib/games'
-import { fakeFetch, fakeSave, memoryQueue, statuses, type Recorded } from './helpers/client-sync'
+import { fakeFetch, fakeGbHeader, fakeSave, memoryQueue, statuses, type Recorded } from './helpers/client-sync'
 
 /**
  * NFR-01 / FR-04: no request ever carries game-file bytes. Drives the browser's
@@ -77,6 +78,13 @@ describe('NFR-01: no game-file bytes in any request', () => {
     expect(saveProblem('GBA', ROM.slice(0, 0x20000))).toMatch(/game file/)
     expect(saveProblem('GBA', fakeSave(1))).toBeNull()
     expect(saveProblem('GBA', fakeSave(1, 0x20000 + 16))).toBeNull() // RTC footer
+  })
+
+  it('a 32 KB Game Boy game is refused as a Game Boy save; a 32 KB save is not', () => {
+    const gb = fakeGbHeader('TETRIS').buffer as ArrayBuffer
+    expect(saveProblem('GB', gb)).toMatch(/game file/)
+    expect(saveProblem('GB', fakeSave(1, 0x8000))).toBeNull()
+    expect(dropProblem(new Uint8Array(gb))).toMatchObject({ code: 'game_file' })
   })
 
   it('the save fixtures used elsewhere are not mistaken for game files', async () => {

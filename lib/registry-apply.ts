@@ -9,7 +9,7 @@ import { reconcile, type Conflict, type LinkClaim, type Origin, type SeenPokemon
  */
 export async function applyRegistry(
   tx: Prisma.TransactionClient,
-  input: { slotId: string; versionId: string; seen: SeenPokemon[]; newOrigin: Origin; linkPartners?: Set<string> },
+  input: { slotId: string; versionId: string; seen: SeenPokemon[]; newOrigin: Origin; linkPartners?: ReadonlySet<string> | ReadonlyMap<string, unknown> },
 ): Promise<{ conflicts: Conflict[]; linkClaims: LinkClaim[] }> {
   const { slotId, versionId, seen, newOrigin, linkPartners } = input
   const fingerprints = [...new Set(seen.map((p) => p.fingerprint))]

@@ -41,7 +41,7 @@ async function rejection(p: Promise<unknown>) {
 // TRUNCATE doesn't fire the row triggers that keep save_versions and audit_events append-only.
 beforeEach(async () => {
   if (!process.env.DATABASE_URL?.includes('/pokehub_test')) throw new Error('refusing to wipe a non-test database')
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE users, pokemon_registry, audit_events CASCADE')
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE users, pokemon_registry, audit_events, link_trades CASCADE')
 })
 afterAll(() => prisma.$disconnect())
 
@@ -99,5 +99,40 @@ describe('later generations are data, not new code (ADR-013)', () => {
     expect(first).toMatchObject({ created: true, conflicts: [] })
     const owned = await prisma.pokemonRegistry.findMany({ where: { currentSlotId: slot.id } })
     expect(owned).toEqual([expect.objectContaining({ species: 495, origin: 'IMPORTED' })])
+  })
+})
+
+describe('link trades (FR-26, FR-37)', () => {
+  it('records each Pokémon received from a slot in the same session', async () => {
+    const a = await slotFor('giver')
+    const b = await slotFor('taker')
+    const now = new Date()
+    const session = await prisma.linkSession.create({
+      data: {
+        hostId: a.userId,
+        mode: 'CABLE',
+        state: 'ACTIVE',
+        startedAt: now,
+        seats: { create: [{ seat: 0, userId: a.userId, slotId: a.id, readyAt: now }, { seat: 1, userId: b.userId, slotId: b.id, readyAt: now }] },
+      },
+    })
+    await ingestSave({ slot: a, bytes: LV5, parentVersionId: null, source: 'EMULATOR', actorId: a.userId })
+    // The same save in B: every Pokémon in it arrived from A over the cable.
+    const got = await ingestSave({ slot: b, bytes: LV5, parentVersionId: null, source: 'EMULATOR', actorId: b.userId })
+    expect(got.conflicts).toEqual([])
+
+    const trades = await prisma.linkTrade.findMany()
+    expect(trades.length).toBeGreaterThan(0)
+    expect(trades[0]).toMatchObject({
+      sessionId: session.id,
+      mode: 'CABLE',
+      fromUserId: a.userId,
+      fromSlotId: a.id,
+      toUserId: b.userId,
+      toSlotId: b.id,
+      versionId: got.version.id,
+    })
+    expect(trades[0].speciesName).not.toBe('')
+    await expect(prisma.$executeRawUnsafe(`DELETE FROM link_trades`)).rejects.toThrow(/append-only/)
   })
 })

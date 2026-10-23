@@ -20,14 +20,14 @@ ARG MGBA_COMMIT=26b7884bc25a5933960f3cdcd98bac1ae14d42e2
 RUN git clone --quiet --depth 1 --branch "${MGBA_REF}" https://github.com/mgba-emu/mgba.git /mgba \
  && test "$(git -C /mgba rev-parse HEAD)" = "${MGBA_COMMIT}"
 
-# The core library only: GBA, no frontends, no optional libraries, no threads.
+# The core library only: GBA and GB, no frontends, no optional libraries, no threads.
 WORKDIR /mgba/build
 RUN emcmake cmake .. \
       -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_STATIC=ON -DBUILD_SHARED=OFF -DDISABLE_FRONTENDS=ON \
       -DBUILD_QT=OFF -DBUILD_SDL=OFF -DBUILD_LIBRETRO=OFF -DBUILD_PERF=OFF -DBUILD_TEST=OFF -DBUILD_SUITE=OFF \
       -DBUILD_GL=OFF -DBUILD_GLES2=OFF -DBUILD_GLES3=OFF -DUSE_EPOXY=OFF \
-      -DM_CORE_GB=OFF -DM_CORE_GBA=ON \
+      -DM_CORE_GB=ON -DM_CORE_GBA=ON \
       -DUSE_DEBUGGERS=OFF -DUSE_GDB_STUB=OFF -DUSE_EDITLINE=OFF -DENABLE_SCRIPTING=OFF -DUSE_LUA=OFF \
       -DUSE_FFMPEG=OFF -DUSE_ZLIB=OFF -DUSE_MINIZIP=OFF -DUSE_PNG=OFF -DUSE_LIBZIP=OFF -DUSE_SQLITE3=OFF \
       -DUSE_ELF=OFF -DUSE_LZMA=OFF -DUSE_DISCORD_RPC=OFF \

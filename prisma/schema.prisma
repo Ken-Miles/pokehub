@@ -36,6 +36,7 @@ enum FriendshipStatus {
 /// Where a game runs (lib/games.ts PLATFORMS). DS codes reuse GBA ones, so a
 /// slot's game is platform + gameCode, never the code alone.
 enum Platform {
+  GB
   GBA
   NDS
   N3DS
@@ -81,10 +82,14 @@ enum FlagStatus {
 }
 
 /// FR-26: SAME_DEVICE = every seat is one player's own slot, linked in one page;
-/// NETWORK = friends in their own browsers, lockstep over the network (ADR-012).
+/// NETWORK = friends in their own browsers, lockstep over the network (ADR-012);
+/// CABLE = two Game Boys (or GBAs), each running only its own game, cable relayed (FR-34, ADR-020/021);
+/// WIRELESS = a room of 2–5 Gen 3 Wireless Adapters, each running only its own game (FR-35, ADR-022).
 enum LinkMode {
   SAME_DEVICE
   NETWORK
+  CABLE
+  WIRELESS
 }
 
 enum LinkState {
@@ -115,6 +120,7 @@ model User {
   tokenVersion     Int        @default(0) // bump = sign out everywhere
   acceptUnverified Boolean    @default(false) // ADR-008
   isTester         Boolean    @default(false) // FR-32: may use the save drop box; set by an admin
+  isBot            Boolean    @default(false) // FR-36: a test bot; only the bot host acts as it, never a login
   emulatorControls Json       @default("{}") @map("emulator_controls")
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -365,9 +371,12 @@ model LinkSeat {
   /// SHA-1 of the game file this seat plays; every browser must load the same dump.
   romSha1        String?
   coreBuild      String?
+  /// In the session (cable accepted, room joined, game checked); null = only invited.
   readyAt        DateTime?
   /// The slot's save version when the session started; every browser boots this seat from it.
   startVersionId String?
+  /// Left a wireless room that kept running (FR-35).
+  leftAt         DateTime?
   createdAt      DateTime    @default(now())
 
   @@unique([sessionId, seat])
@@ -434,6 +443,33 @@ model DropFile {
   @@index([uploaderId, createdAt])
   @@index([createdAt])
   @@map("drop_files")
+}
+
+/// One Pokémon moved by an in-game link trade (cable, wireless room or /link),
+/// written when the receiving save is ingested (lib/save-pipeline.ts). Plain ids,
+/// no FKs, so the history outlives slot purges. Append-only, like audit_events.
+model LinkTrade {
+  id          String   @id @default(cuid())
+  sessionId   String
+  mode        LinkMode
+  fingerprint String
+  species     Int
+  speciesName String
+  nickname    String
+  level       Int
+  fromUserId  String
+  fromSlotId  String
+  toUserId    String
+  toSlotId    String
+  /// The receiving slot's save version that first showed the Pokémon.
+  versionId   String
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([fromUserId, createdAt])
+  @@index([toUserId, createdAt])
+  @@index([fingerprint])
+  @@map("link_trades")
 }
 
 /// Append-only (FR-24): a trigger in the initial migration rejects UPDATE/DELETE.

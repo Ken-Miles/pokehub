@@ -17,6 +17,17 @@ export function hasGbaRomHeader(b: Uint8Array): boolean {
 }
 
 /**
+ * A real Game Boy header: the first four bytes of the Nintendo logo at 0x104
+ * and a matching header checksum at 0x14D. Random data passes about once in 10^12.
+ */
+export function hasGbRomHeader(b: Uint8Array): boolean {
+  if (b.length < 0x150 || b[0x104] !== 0xce || b[0x105] !== 0xed || b[0x106] !== 0x66 || b[0x107] !== 0x66) return false
+  let chk = 0
+  for (let i = 0x134; i <= 0x14c; i++) chk = (chk - b[i] - 1) & 0xff
+  return chk === b[0x14d]
+}
+
+/**
  * A real DS header: the Nintendo logo's fixed CRC (0xCF56) at 0x15C and a
  * matching CRC-16 of the header's first 0x15E bytes at 0x15E. Random data
  * passes both about once in 4 × 10^9.

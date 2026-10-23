@@ -18,11 +18,17 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin/audit" className="underline">
             Audit log
           </Link>
+          <Link href="/admin/trades" className="underline">
+            Trades
+          </Link>
           <Link href="/admin/slots" className="underline">
             Game slots
           </Link>
           <Link href="/admin/dropbox" className="underline">
             Dropbox
+          </Link>
+          <Link href="/admin/bots" className="underline">
+            Bots
           </Link>
         </nav>
         <span className="text-sm text-muted">
