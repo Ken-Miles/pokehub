@@ -24,6 +24,8 @@ save-service/**/obj/
 .claude/
 
 # never commit game files or saves
+# the bot host's games folder (BOT_GAMES_DIR): the operator's own files, zips included
+/bot-games/
 *.gba
 *.gbc
 *.nds
