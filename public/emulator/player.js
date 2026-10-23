@@ -150,18 +150,65 @@
   }
 
   /**
-   * Keys per local player. One player: keyboard and any gamepad. Two or more
-   * on this device: player 1 on the keyboard, the others on gamepads in order.
+   * Keys per local player. One player: keyboard, touch and any gamepad. Two or
+   * more on this device: player 1 on the keyboard and touch, the others on
+   * gamepads in order.
    */
   function sampleLocal() {
     var pads = navigator.getGamepads ? Array.prototype.filter.call(navigator.getGamepads(), Boolean) : []
     if (local.length === 1) {
-      return [keyboardKeys() | pads.reduce(function (acc, p) { return acc | padKeys(p) }, 0)]
+      return [keyboardKeys() | touchKeys() | pads.reduce(function (acc, p) { return acc | padKeys(p) }, 0)]
     }
     return local.map(function (_, i) {
-      return i === 0 ? keyboardKeys() : padKeys(pads[i - 1])
+      return i === 0 ? keyboardKeys() | touchKeys() : padKeys(pads[i - 1])
     })
   }
+
+  // ------------------------------------------------------------ touch controls
+
+  var touches = {} // pointerId → key bits under that finger
+
+  function touchKeys() {
+    var bits = 0
+    for (var id in touches) bits |= touches[id]
+    return bits
+  }
+
+  /** Key bits under a point; fingers can slide between buttons and around the D-pad. */
+  function keysAt(x, y) {
+    var el = document.elementFromPoint(x, y)
+    var button = el && el.closest('#pad [data-key]')
+    if (!button) return 0
+    if (button.dataset.key !== 'dpad') return 1 << BITS[button.dataset.key]
+    var box = button.getBoundingClientRect()
+    var dx = (x - box.left) / box.width - 0.5
+    var dy = (y - box.top) / box.height - 0.5
+    var bits = 0
+    // Diagonals only when the finger is clearly between two arms.
+    if (Math.abs(dx) > 0.12 && Math.abs(dx) > Math.abs(dy) * 0.5) bits |= 1 << (dx < 0 ? BITS.left : BITS.right)
+    if (Math.abs(dy) > 0.12 && Math.abs(dy) > Math.abs(dx) * 0.5) bits |= 1 << (dy < 0 ? BITS.up : BITS.down)
+    return bits
+  }
+
+  function showTouches() {
+    var bits = touchKeys()
+    document.querySelectorAll('#pad [data-key]').forEach(function (el) {
+      var key = el.dataset.key
+      el.classList.toggle('on', key !== 'dpad' && !!(bits & (1 << BITS[key])))
+    })
+  }
+
+  function onTouch(e) {
+    if (e.pointerType === 'mouse') return
+    e.preventDefault()
+    if (e.type === 'pointerup' || e.type === 'pointercancel') delete touches[e.pointerId]
+    else if (e.type === 'pointerdown' || e.pointerId in touches) touches[e.pointerId] = keysAt(e.clientX, e.clientY)
+    showTouches()
+  }
+
+  ;['pointerdown', 'pointermove', 'pointerup', 'pointercancel'].forEach(function (type) {
+    document.getElementById('pad').addEventListener(type, onTouch)
+  })
 
   function onKey(e, down) {
     if (!(e.code in held) && !down) return
@@ -516,6 +563,8 @@
   })
   window.addEventListener('blur', function () {
     held = {}
+    touches = {}
+    showTouches()
   })
   document.addEventListener('pointerdown', function () {
     if (screens[0]) screens[0].ctx.canvas.focus()

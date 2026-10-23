@@ -291,7 +291,7 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
           src="/emulator/index.html"
           title={gameName}
           allow="fullscreen; gamepad; autoplay"
-          className="aspect-[3/2] w-full rounded-xl border border-line bg-black"
+          className="aspect-[3/2] w-full rounded-xl border border-line bg-black pointer-coarse:portrait:aspect-[3/4]"
         />
       )}
       {phase === 'playing' && bindings && (

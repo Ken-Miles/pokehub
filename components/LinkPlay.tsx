@@ -456,7 +456,7 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
             launched.current = true
             void bootLinkedGames().catch((e) => { launched.current = false; setError((e as Error).message) })
           }
-        }} className="aspect-[3/2] w-full rounded-xl border border-line bg-black" />}
+        }} className="aspect-[3/2] w-full rounded-xl border border-line bg-black pointer-coarse:portrait:aspect-[3/4]" />}
         {playing && bindings.length > 0 && <ControlsPanel bindings={bindings} onBind={(action, code) => emu.current?.send({ type: 'bind', action, code })} onReset={() => emu.current?.send({ type: 'reset-bindings' })} linked
           audioReady={audioReady} muted={muted} volume={volume}
           onEnableAudio={() => {

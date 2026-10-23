@@ -18,10 +18,61 @@
       position: fixed; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 6px;
       background: rgba(0, 0, 0, 0.7); color: #fff; font: 13px system-ui, sans-serif;
     }
+
+    /* Touch controls (player 1): only on touch screens. Portrait puts them under
+       the screen (the app makes this page 3:4 there); landscape lays them over it. */
+    #pad { display: none; }
+    @media (pointer: coarse) {
+      #pad {
+        display: block; position: relative; touch-action: none;
+        user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+        --s: min(36vw, 36vh); font: 600 13px system-ui, sans-serif; color: #fff;
+      }
+      #pad [data-key] {
+        position: absolute; display: flex; align-items: center; justify-content: center;
+        background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.35);
+      }
+      #pad [data-key].on:not(.dpad) { background: rgba(255, 255, 255, 0.45); }
+      #pad .dpad { left: 5%; top: 50%; width: var(--s); height: var(--s); transform: translateY(-50%); background: none; border: 0; }
+      #pad .dpad::before, #pad .dpad::after {
+        content: ''; position: absolute; border-radius: 6px;
+        background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.35);
+      }
+      #pad .dpad::before { left: 33%; top: 0; width: 34%; height: 100%; }
+      #pad .dpad::after { left: 0; top: 33%; width: 100%; height: 34%; }
+      #pad .round { width: calc(var(--s) * 0.42); height: calc(var(--s) * 0.42); border-radius: 50%; font-size: 18px; }
+      #pad [data-key="a"] { right: 5%; top: calc(50% - var(--s) * 0.42); }
+      #pad [data-key="b"] { right: calc(5% + var(--s) * 0.5); top: 50%; }
+      #pad .pill { height: 32px; padding: 0 18px; border-radius: 16px; }
+      #pad [data-key="l"] { left: 5%; top: 8px; }
+      #pad [data-key="r"] { right: 5%; top: 8px; }
+      #pad [data-key="select"] { left: calc(50% - 88px); bottom: 8px; }
+      #pad [data-key="start"] { left: calc(50% + 8px); bottom: 8px; }
+    }
+    @media (pointer: coarse) and (orientation: portrait) {
+      body { display: flex; flex-direction: column; }
+      #screens { height: auto; flex: none; }
+      #screens canvas { width: 100%; height: auto; }
+      #pad { flex: 1; }
+    }
+    @media (pointer: coarse) and (orientation: landscape) {
+      #pad { position: fixed; inset: 0; pointer-events: none; }
+      #pad [data-key] { pointer-events: auto; opacity: 0.7; }
+    }
   </style>
 </head>
 <body>
   <div id="screens"></div>
+  <!-- Hidden from screen readers: pointer-only copies of the keyboard and gamepad controls. -->
+  <div id="pad" aria-hidden="true">
+    <div class="pill" data-key="l">L</div>
+    <div class="pill" data-key="r">R</div>
+    <div class="dpad" data-key="dpad"></div>
+    <div class="round" data-key="b">B</div>
+    <div class="round" data-key="a">A</div>
+    <div class="pill" data-key="select">SELECT</div>
+    <div class="pill" data-key="start">START</div>
+  </div>
   <div id="message" hidden></div>
   <script src="core/mgba-hub.js"></script>
   <script src="player.js"></script>
