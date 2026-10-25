@@ -4,6 +4,8 @@ import { canBind, keyLabel, legend, type Binding } from '@/lib/client/controls'
 const defaults: Binding[] = [
   { id: 'a', key: 'KeyX', pad: 'BUTTON_2' },
   { id: 'b', key: 'KeyZ', pad: 'BUTTON_1' },
+  { id: 'x', key: 'KeyW', pad: null }, // a GBA page reports X and Y without a gamepad button
+  { id: 'y', key: 'KeyQ', pad: null },
   { id: 'l', key: 'KeyA', pad: 'LEFT_TOP_SHOULDER' },
   { id: 'r', key: 'KeyS', pad: 'RIGHT_TOP_SHOULDER' },
   { id: 'start', key: 'Enter', pad: 'START' },
@@ -43,6 +45,12 @@ describe('legend', () => {
   it('hides save states while linked (lockstep has neither)', () => {
     const rows = legend(defaults, { linked: true })
     expect(rows.map((r) => r.id)).toEqual(['a', 'b', 'l', 'r', 'start', 'select', 'up', 'down', 'left', 'right'])
+  })
+
+  it('adds X and Y on a DS page only (FR-07)', () => {
+    const rows = legend(defaults, { ds: true })
+    expect(rows.map((r) => r.id).slice(0, 4)).toEqual(['a', 'b', 'x', 'y'])
+    expect(rows.find((r) => r.id === 'x')?.key).toBe('W')
   })
 
   it('names keys by code, and keeps unknown codes as they are', () => {

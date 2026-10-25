@@ -4,7 +4,7 @@
  * in the legend show up here as soon as the emulator stores them.
  */
 
-export type Action = 'a' | 'b' | 'l' | 'r' | 'start' | 'select' | 'up' | 'down' | 'left' | 'right' | 'save' | 'load' | 'slot'
+export type Action = 'a' | 'b' | 'x' | 'y' | 'l' | 'r' | 'start' | 'select' | 'up' | 'down' | 'left' | 'right' | 'save' | 'load' | 'slot'
 
 export interface Binding {
   id: Action
@@ -19,10 +19,12 @@ export interface LegendRow {
   pad: string | null
 }
 
-// GBA buttons first, then the hotkeys, in the order a player looks for them.
+// Game buttons first, then the hotkeys, in the order a player looks for them.
 const ACTIONS: [Action, string][] = [
   ['a', 'A'],
   ['b', 'B'],
+  ['x', 'X'],
+  ['y', 'Y'],
   ['l', 'L'],
   ['r', 'R'],
   ['start', 'Start'],
@@ -37,6 +39,8 @@ const ACTIONS: [Action, string][] = [
 ]
 
 const HOTKEYS = new Set<Action>(['save', 'load', 'slot'])
+/** DS-only buttons (FR-07): hidden on GB and GBA pages. */
+const DS_ONLY = new Set<Action>(['x', 'y'])
 /** Hotkeys that don't apply while linked (lockstep has one speed and no states). */
 export const SOLO_ONLY = HOTKEYS
 
@@ -95,11 +99,12 @@ export function canBind(code: string): boolean {
   return !['Escape', 'F5', 'F11', 'F12', 'MetaLeft', 'MetaRight', 'Tab'].includes(code)
 }
 
-export function legend(bindings: Binding[], opts: { linked?: boolean } = {}): LegendRow[] {
+export function legend(bindings: Binding[], opts: { linked?: boolean; ds?: boolean } = {}): LegendRow[] {
   const byId = new Map(bindings.map((b) => [b.id, b]))
   return ACTIONS.flatMap(([id, action]) => {
     const b = byId.get(id)
     if (opts.linked && SOLO_ONLY.has(id)) return []
+    if (!opts.ds && DS_ONLY.has(id)) return []
     // An unbound hotkey isn't worth a row; an unbound game button is (the player needs to fix it).
     if (!b?.key && !b?.pad && HOTKEYS.has(id)) return []
     return [{ id, action, key: keyLabel(b?.key ?? null), pad: b?.pad ? (PAD_NAMES[b.pad] ?? b.pad) : null }]

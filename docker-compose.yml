@@ -40,6 +40,43 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
+  # FR-38 DS network tunnel (Phase 5): docker compose --profile ds up -d ds-gateway.
+  # Each tunnel is a tap on a private bridge; ip_forward=0 keeps DS traffic off every other network.
+  ds-gateway:
+    build: ./ds-gateway
+    image: pokehub-ds-gateway:dev
+    profiles: [ds]
+    environment:
+      DS_GATEWAY_SECRET: ${DS_GATEWAY_SECRET:?set DS_GATEWAY_SECRET in .env}
+      # FR-39: the site, for sign-in checks (/api/ds/signin). Dev: the app on the host.
+      DS_SITE_URL: ${DS_SITE_URL:-http://host.docker.internal:3000}
+    ports: ["127.0.0.1:8790:8790"]
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun]
+    sysctls:
+      net.ipv4.ip_forward: 0
+      net.ipv6.conf.all.disable_ipv6: 1 # the DS speaks IPv4 only; no IPv6 chatter on the bridge
+      net.ipv6.conf.default.disable_ipv6: 1
+
+  # FR-39: sign-in + GameSpy services (dwc_network_server_emulator) and the HTTP front for
+  # them, both inside ds-gateway's network so DSes reach them at 10.77.0.1. Restart them
+  # after restarting ds-gateway (they join its network namespace).
+  ds-services:
+    build: ./ds-gateway/dwc
+    image: pokehub-ds-services:dev
+    profiles: [ds]
+    network_mode: service:ds-gateway
+    depends_on: [ds-gateway]
+    volumes: [dsdata:/dwc/data]
+
+  ds-web:
+    image: nginx:1.27-alpine
+    profiles: [ds]
+    network_mode: service:ds-gateway
+    depends_on: [ds-services]
+    volumes: ["./ds-gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro"]
+
 volumes:
+  dsdata:
   pgdata:
   s3data:

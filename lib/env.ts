@@ -18,6 +18,9 @@ const schema = z.object({
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
   // FR-36: the bot host's key (ADR-023). Unset = no bot can act at all.
   BOT_HOST_SECRET: z.string().min(32).optional(),
+  // FR-38: the DS gateway's ticket key and its public WebSocket URL. Unset = DS online off.
+  DS_GATEWAY_SECRET: z.string().min(32).optional(),
+  DS_GATEWAY_URL: z.string().url().optional(),
   ALLOW_UNLISTED_ROMS: z
     .enum(['true', 'false'])
     .default('false')

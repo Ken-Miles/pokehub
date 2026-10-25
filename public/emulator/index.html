@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Emulator</title>
   <!--
-    Pokémon Hub runs mGBA (MPL-2.0, https://github.com/mgba-emu/mgba), unmodified,
-    built to WebAssembly with our glue (emulator/ in the repo; ADR-011). The app
+    Pokémon Hub runs mGBA (MPL-2.0, https://github.com/mgba-emu/mgba) and, for DS games,
+    melonDS (GPL-3.0, https://github.com/melonDS-emu/melonDS), unmodified, built to
+    WebAssembly with our glue (emulator/ and emulator/melonds/ in the repo; ADR-011). The app
     talks to this page only through postMessage — see player.js.
   -->
   <style>
@@ -48,12 +49,21 @@
       #pad [data-key="r"] { right: 5%; top: 8px; }
       #pad [data-key="select"] { left: calc(50% - 88px); bottom: 8px; }
       #pad [data-key="start"] { left: calc(50% + 8px); bottom: 8px; }
+      /* DS: four face buttons in a diamond (X top, A right, B bottom, Y left). */
+      #pad [data-key="x"], #pad [data-key="y"] { display: none; }
+      .ds #pad [data-key="x"], .ds #pad [data-key="y"] { display: flex; }
+      .ds #pad [data-key="x"] { right: calc(5% + var(--s) * 0.29); top: calc(50% - var(--s) * 0.5); }
+      .ds #pad [data-key="a"] { right: 5%; top: calc(50% - var(--s) * 0.21); }
+      .ds #pad [data-key="b"] { right: calc(5% + var(--s) * 0.29); top: calc(50% + var(--s) * 0.08); }
+      .ds #pad [data-key="y"] { right: calc(5% + var(--s) * 0.58); top: calc(50% - var(--s) * 0.21); }
     }
     @media (pointer: coarse) and (orientation: portrait) {
       body { display: flex; flex-direction: column; }
       #screens { height: auto; flex: none; }
       #screens canvas { width: 100%; height: auto; }
       #pad { flex: 1; }
+      .ds #screens { height: 62%; }
+      .ds #screens canvas { width: auto; height: 100%; }
     }
     @media (pointer: coarse) and (orientation: landscape) {
       #pad { position: fixed; inset: 0; pointer-events: none; }
@@ -70,6 +80,8 @@
     <div class="dpad" data-key="dpad"></div>
     <div class="round" data-key="b">B</div>
     <div class="round" data-key="a">A</div>
+    <div class="round" data-key="x">X</div>
+    <div class="round" data-key="y">Y</div>
     <div class="pill" data-key="select">SELECT</div>
     <div class="pill" data-key="start">START</div>
   </div>

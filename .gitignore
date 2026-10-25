@@ -21,17 +21,22 @@ save-service/**/obj/
 .vscode/*
 !.vscode/extensions.json
 .idea
+.boost*
 .claude/
+CLAUDE.md
+
 
 # never commit game files or saves
 # the bot host's games folder (BOT_GAMES_DIR): the operator's own files, zips included
-/bot-games/
+/bots/games/
 *.gba
+*.gb
+
 # except our own homebrew link tests (built by tests/fixtures/link-rom/build.sh; no game data)
 !tests/fixtures/link-test.gba
 !tests/fixtures/net-test.gba
 !tests/fixtures/rfu-test.gba
-*.gb
+
 # except our own 32 KB homebrew GB cable tests (built by tests/fixtures/link-rom/build-gb.py; no game data)
 !tests/fixtures/link-test.gb
 !tests/fixtures/link-test-gbc.gb

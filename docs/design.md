@@ -57,9 +57,8 @@ game file — only save files (ADR-001).
 
 ## Games (ADR-013)
 Every Gen 3–7 game is data in `lib/games.ts`: platform (GBA / NDS / N3DS),
-generation, save format, sizes, emulator core. Only GBA is `playable`; NDS
-(Phase 4, browser) and N3DS (Phase 6, desktop Azahar + companion app) are
-`planned` and refused with their phase. A slot's game is **platform + code**
+generation, save format, sizes, emulator core. GB, GBA and NDS are `playable`;
+N3DS (Phase 6, desktop Azahar + companion app) is `planned` and refused with its phase. A slot's game is **platform + code**
 (DS codes reuse GBA ones). The save service already reads every Gen 3–7 format;
 the clone fingerprint (`pk1:` PID+TID+SID+OT) is the same in every generation.
 Switching a platform on = emulator work + its availability flag, not new paths
@@ -104,6 +103,37 @@ through the save pipeline.
   browsers (NFR-09).
 - Gen 4–5 later: our own replacement for Nintendo Wi-Fi Connection (Phase 5).
 
+## DS player, spike and network tunnel (Phase 4/5, FR-07, FR-38, ADR-026)
+- melonDS 1.1 core (GPL-3.0) built to WebAssembly with our glue `emulator/melonds/hub.cpp`
+  (`npm run emulator:build:ds` → `public/emulator/ds/`, which also publishes `hub.cpp`, linked
+  from the footer). Built-in BIOS and generated firmware only; no JIT, no threads.
+- FR-07: the glue has the **same C API as the mGBA core**, so `/emulator/index.html` +
+  `player.js` play DS games too (boot `platform: 'NDS'` loads `ds/melonds-hub.js`): one DS, both
+  screens in one 256×384 canvas (top over bottom), the lower half is the touch screen (mouse,
+  pen or finger), X/Y keys and touch buttons, save states in memory, audio at the page's rate,
+  RTC from the wall clock. `FrameClock` runs at 59.8261 fps for DS. Saves go through the same
+  SaveSync/ingest path (512 KB). The glue reports no save until the game writes one; a new game
+  that writes an unreadable save before the player's first save is dropped quietly (only while
+  the slot has no version). Not on the product page yet: the Wi-Fi tunnel (Phase 5), a screen
+  layout switch. Self-check: `spikes/ds-wifi/glue-check.mjs <game.nds>`.
+- Spike page `/emulator/ds/spike.html` (Wi-Fi tunnel); `spikes/ds-wifi/` has a speed bench and
+  a scripted driver (all read the operator's own game file locally).
+- The DS's Wi-Fi leaves as Ethernet frames over one WebSocket to `ds-gateway/` (compose profile
+  `ds`): one tap per tunnel on a Linux bridge, dnsmasq for DHCP and Nintendo's DNS names,
+  `ip_forward=0`. `/api/ds/tunnel` signs a 60 s ticket (`lib/ds-tunnel.ts`, key
+  `DS_GATEWAY_SECRET`) naming the user and the account's DS MAC; the gateway forwards only that MAC.
+- FR-39 (ADR-027): dwc_network_server_emulator (AGPL-3.0, pinned, admin pages kept on
+  localhost) runs as `ds-services` and nginx as `ds-web`, both in ds-gateway's network, so the
+  sign-in and GameSpy services sit at 10.77.0.1. Sign-in is plain HTTP: `hub.cpp` rewrites the
+  game's `https://nas…` URL in emulated RAM (game file untouched, no Nintendo keys). Check:
+  `ds-gateway/check_services.py`.
+- ADR-028: sign-in (`/ac`) goes through the gateway first (`ds-web` → 127.0.0.1:8791): the DS's
+  leased IP gives its tunnel and account, `macadr` must match, and `/api/ds/signin` (gateway key)
+  allows only the WFC user ID bound to the account (`ds_consoles`). The site allocates new WFC IDs
+  (dwc's repeat). The page saves the DS's Wi-Fi settings (`/api/ds/console`, 768 bytes) and boots
+  with them. Frames from any IP but the DS's lease are dropped. Check: `spikes/ds-wifi/signin-check.mts`.
+- Not built: the DS Wi-Fi tunnel in the product player, GTS.
+
 ## The link cable and the Wireless Adapter (ADR-019…022)
 - Platform `GB`: Red, Green (Japan), Blue, Yellow; codes `APA`/`APG`/`APE`/`APS` + `J` or
   `O`. Headers carry no code, so `lib/client/rom.ts` finds it by SHA-1. Saves are 32 KB,
@@ -146,8 +176,9 @@ through the save pipeline.
 - Open: resetting a bot after a trade vs. clone detection and the restore barrier.
 - Built (P0): `isBot`, `lib/bot-auth.ts` (`x-bot-key` + `x-bot` headers / socket auth,
   `BOT_HOST_SECRET`), `npm run bots:create`, and `bots/` (`npm run bots`): one thread,
-  cable only, Emerald (US) Trade Center steps in `bots/emerald.ts` — not yet run against
-  the real game. Wireless rooms built since.
+  cable only, Emerald (US) Trade Center steps in `bots/emerald.ts`. Wireless rooms built
+  since; with real Emerald the Union Room and a Direct Corner wireless trade worked.
+  Games folder: `bots/games/` (gitignored).
 - Built: `/admin/bots` live view (`lib/bot-watch.ts`): bots send PNG screens at 10 fps
   only while an admin is watching; the site relays them to admins only. One watching
   admin at a time takes control of a bot: their buttons replace the bot's, the bot's

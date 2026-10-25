@@ -66,9 +66,9 @@ describe('identifyGame', () => {
   it('reads the region from the last letter', () => {
     expect(identifyGame('GBA', 'BPRP')).toMatchObject({ region: 'Europe', language: 'P' })
   })
-  it('only Gen 3 is playable; Gen 4–7 are catalogued as planned', () => {
+  it('Gen 1–5 are playable; Gen 6–7 are catalogued as planned', () => {
     expect(identifyGame('GBA', 'BPEE')).toMatchObject({ generation: 3, playable: true })
-    expect(identifyGame('NDS', 'ADAE')).toMatchObject({ name: 'Diamond', generation: 4, family: 'DP', playable: false })
+    expect(identifyGame('NDS', 'ADAE')).toMatchObject({ name: 'Diamond', generation: 4, family: 'DP', playable: true })
     expect(identifyGame('NDS', 'IRBO')).toMatchObject({ name: 'Black', generation: 5, region: 'USA and Europe' })
     expect(identifyGame('N3DS', 'OR')).toMatchObject({ name: 'Omega Ruby', generation: 6, family: 'ORAS', region: null })
     expect(identifyGame('N3DS', 'UM')).toMatchObject({ generation: 7, family: 'USUM', playable: false })

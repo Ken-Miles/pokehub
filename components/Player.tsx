@@ -7,7 +7,7 @@ import { LinkCable } from '@/components/LinkCable'
 import { Wireless } from '@/components/Wireless'
 import { forgetRom, inspectRom, rememberRom, rememberedRom } from '@/lib/client/rom'
 import { canBind, legend, type Action, type Binding } from '@/lib/client/controls'
-import { EmulatorFrame, FrameClock } from '@/lib/client/emulator'
+import { DS_FPS, EmulatorFrame, FrameClock, GBA_FPS, reportCrash } from '@/lib/client/emulator'
 import { loadEmulatorBindings, saveEmulatorBindings } from '@/lib/client/emulator-controls'
 import { SaveSync, indexedDbQueue, romCheck, type PendingSave, type SyncStatus } from '@/lib/client/save-sync'
 import { PLATFORMS, type Platform } from '@/lib/games'
@@ -16,7 +16,7 @@ import { airable } from '@/lib/link-rules'
 /** Frames per tick while fast-forwarding (FR-06): 3× speed. */
 const FAST_FORWARD = 3
 
-type Phase = 'need-rom' | 'loading' | 'device-conflict' | 'playing' | 'stale' | 'locked' | 'error'
+type Phase = 'need-rom' | 'loading' | 'device-conflict' | 'playing' | 'stale' | 'locked' | 'crashed' | 'error'
 interface Props {
   slotId: string
   platform: Platform
@@ -149,7 +149,7 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
     }
   }
 
-  // The emulator iframe: boot it with the game and the cloud save, then run frames at the GBA's rate.
+  // The emulator iframe: boot it with the game and the cloud save, then run frames at the console's rate.
   useEffect(() => {
     if (phase !== 'playing' || !frame.current) return
     const e = new EmulatorFrame(frame.current)
@@ -160,18 +160,19 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
       // Gen 3 cable: the game held a frame back for the friend's words (ADR-021).
       if (!!r.waiting !== waitingRef.current) setWaiting((waitingRef.current = !!r.waiting))
       return true
-    })
+    }, platform === 'NDS' ? DS_FPS : GBA_FPS)
     clock.current = c
     e.on('ready', () => {
       void loadEmulatorBindings().catch(() => ({})).then((saved) => {
-        if (rom.current) e.boot({ platform: platform === 'GB' ? 'GB' : 'GBA', games: [{ rom: rom.current, save: bootSave.current }], local: [0], bindings: saved, rtc: { mode: 'wall' } })
+        if (rom.current) e.boot({ platform: platform === 'N3DS' ? 'GBA' : platform, games: [{ rom: rom.current, save: bootSave.current }], local: [0], bindings: saved, rtc: { mode: 'wall' } })
       })
     })
     e.on('started', () => c.start())
     e.on('error', (m) => {
       c.stop()
+      reportCrash('solo', slotId, m)
       setError(String(m.message))
-      setPhase('error')
+      setPhase(m.crashed ? 'crashed' : 'error')
     })
     e.on('save', (m) => void sync.current?.submit(m.bytes as ArrayBuffer))
     e.on('unchanged', () => void sync.current?.retryNow())
@@ -283,6 +284,15 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
           .
         </Banner>
       )}
+      {phase === 'crashed' && (
+        <Banner>
+          The emulator crashed and we&rsquo;ve sent a report. Your saves that already reached the cloud are safe.{' '}
+          <button className="underline" onClick={() => rom.current && void start(rom.current)}>
+            Restart the game
+          </button>
+          .
+        </Banner>
+      )}
       {phase === 'locked' && <Banner>This save is locked while a trade finishes. It will unlock in a moment.</Banner>}
       {phase === 'loading' && <p className="text-muted">Loading your cloud save…</p>}
       {(phase === 'playing' || phase === 'stale') && (
@@ -291,12 +301,17 @@ export function Player({ slotId, platform, gameCode, gameName }: Props) {
           src="/emulator/index.html"
           title={gameName}
           allow="fullscreen; gamepad; autoplay"
-          className="aspect-[3/2] w-full rounded-xl border border-line bg-black pointer-coarse:portrait:aspect-[3/4]"
+          className={
+            platform === 'NDS'
+              ? 'h-[85vh] w-full rounded-xl border border-line bg-black' // both screens stacked; the page letterboxes them
+              : 'aspect-[3/2] w-full rounded-xl border border-line bg-black pointer-coarse:portrait:aspect-[3/4]'
+          }
         />
       )}
       {phase === 'playing' && bindings && (
         <ControlsPanel
           bindings={bindings}
+          ds={platform === 'NDS'}
           onBind={(action, code) => {
             send({ type: 'bind', action, code })
             frame.current?.focus()
@@ -356,6 +371,7 @@ export function ControlsPanel({
   bindings,
   onBind,
   onReset,
+  ds = false,
   linked = false,
   audioReady = true,
   muted = false,
@@ -370,6 +386,8 @@ export function ControlsPanel({
   bindings: Binding[]
   onBind: (action: Action, code: string) => void
   onReset: () => void
+  /** DS page: X and Y rows, and the touch screen hint. */
+  ds?: boolean
   linked?: boolean
   audioReady?: boolean
   muted?: boolean
@@ -383,7 +401,7 @@ export function ControlsPanel({
   onFastForward?: () => void
 }) {
   const [listening, setListening] = useState<Action | null>(null)
-  const rows = legend(bindings, { linked })
+  const rows = legend(bindings, { linked, ds })
 
   useEffect(() => {
     if (!listening) return
@@ -433,6 +451,7 @@ export function ControlsPanel({
           Reset to defaults
         </button>
         . Gamepads work as soon as you press a button.{' '}
+        {ds && 'The lower screen is the touch screen: use the mouse or your finger. '}
         {linked
           ? 'While linked, player 1 uses the keyboard and the others use gamepads in order; save states are off.'
           : "Save states stay in this tab only: they're gone when you reload, and cleared if your cloud save changes somewhere else."}

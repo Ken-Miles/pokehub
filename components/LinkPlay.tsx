@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { io, type Socket } from 'socket.io-client'
-import { EmulatorFrame, FrameClock, type CoreBuild } from '@/lib/client/emulator'
+import { EmulatorFrame, FrameClock, reportCrash, type CoreBuild } from '@/lib/client/emulator'
 import { inspectRom, rememberRom, rememberedRom } from '@/lib/client/rom'
 import { SaveSync, indexedDbQueue, romCheck, type SyncStatus } from '@/lib/client/save-sync'
 import type { Binding } from '@/lib/client/controls'
@@ -324,7 +324,7 @@ export function LinkPlay({ sessionId }: { sessionId?: string }) {
       if (view.mode === 'SAME_DEVICE') c.start()
       else socket.current?.emit('link:booted', sessionId)
     })
-    e.on('error', (m) => { c.stop(); setError(String(m.message)); setPlaying(false) })
+    e.on('error', (m) => { c.stop(); reportCrash('link', sessionId, m); setError(String(m.message)); setPlaying(false) })
     e.on('save', (m) => {
       const core = m.core as number
       const job = syncs.current.get(core)?.submit(m.bytes as ArrayBuffer)

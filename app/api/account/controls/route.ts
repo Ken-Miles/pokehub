@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db'
 import { HttpError, route } from '@/lib/http'
 import { requireUser } from '@/lib/session'
 
-const ACTIONS = new Set(['a', 'b', 'l', 'r', 'start', 'select', 'up', 'down', 'left', 'right', 'save', 'load', 'slot'])
+const ACTIONS = new Set(['a', 'b', 'x', 'y', 'l', 'r', 'start', 'select', 'up', 'down', 'left', 'right', 'save', 'load', 'slot'])
 const RESERVED_KEYS = new Set(['Escape', 'F5', 'F11', 'F12', 'MetaLeft', 'MetaRight', 'Tab'])
 const bindingMap = z.record(z.string().max(40), z.string().max(40).nullable()).refine(
   (bindings) => Object.entries(bindings).every(([action, key]) =>

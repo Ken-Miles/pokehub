@@ -137,8 +137,22 @@ model User {
   dropFiles       DropFile[]
   linkHosted      LinkSession[]
   linkSeats       LinkSeat[]
+  dsConsole       DsConsole?
 
   @@map("users")
+}
+
+/// FR-39: a site account's emulated DS. Its MAC isn't stored: it's lib/ds-tunnel.ts#dsMac(userId).
+model DsConsole {
+  userId       String   @id
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The Nintendo WFC user ID our sign-in gave this DS; every later sign-in must use it.
+  wfcUserId    String?  @unique
+  /// The DS's three Wi-Fi access point blocks as it last wrote them (768 bytes), restored at boot.
+  wifiSettings Bytes?
+  updatedAt    DateTime @updatedAt
+
+  @@map("ds_consoles")
 }
 
 model EmailToken {

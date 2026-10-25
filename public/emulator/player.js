@@ -1,12 +1,13 @@
 /*
  * Pokémon Hub's emulator page: our mGBA WebAssembly build (ADR-011) with
  * 1–4 GBAs, linked by an in-memory cable when there is more than one (ADR-018),
- * or one GB/GBA whose cable runs over the network (ADR-020, ADR-021).
+ * or one GB/GBA whose cable runs over the network (ADR-020, ADR-021), or one DS on
+ * our melonDS build (FR-07; ds/, same C API, both screens in one 256×384 canvas).
  *
  * The parent page drives every frame, so solo play and lockstep link play are
  * the same loop (lib/client/emulator.ts):
  *
- * parent → iframe   { type: 'boot', platform: 'GBA' | 'GB' (default 'GBA'), games: [{ rom, save, patch }], local: [core…], audioFrom, rtc: { mode: 'wall' } | { mode: 'fixed', epochMs } }
+ * parent → iframe   { type: 'boot', platform: 'GBA' | 'GB' | 'NDS' (default 'GBA'), games: [{ rom, save, patch }], local: [core…], audioFrom, rtc: { mode: 'wall' } | { mode: 'fixed', epochMs } }
  *                   { type: 'frame', count, inputs?: number[], hash?: boolean }
  *                       inputs = key bits per core (lockstep); without it, each local core reads this page's devices
  *                   { type: 'cable-plug', on: boolean, seat?, delay? } — one game: plug the network cable in/out (plugged = linked, no states)
@@ -22,7 +23,9 @@
  *                   { type: 'flush' } — "Sync now": read save RAM immediately
  *                   { type: 'clear-states' } — the cloud save changed elsewhere (ADR-016)
  *                   { type: 'bind', action, code } | { type: 'reset-bindings' }
- * iframe → parent   { type: 'ready' } | { type: 'started', build } | { type: 'error', message }
+ * iframe → parent   { type: 'ready' } | { type: 'started', build }
+ *                   { type: 'error', crashed, message, stack?, frames?, linked?, build?, recent }
+ *                       crashed = the core died while running (the page is dead; reload it), else it wouldn't boot
  *                   { type: 'framed', local: number[], hash?: number, stalls: number }
  *                       local = keys held on this page per local core, sampled after the frame
  *                   { type: 'save', core, bytes: ArrayBuffer, sha256: string }
@@ -46,23 +49,26 @@
   var STATE_SLOTS = 9
   var AUDIO_STORAGE_KEY = 'pokehub.audio.v1'
 
-  // GBA key register bits (a Game Boy uses the first eight).
+  // GBA key register bits (a Game Boy uses the first eight); a DS adds X and Y at boot.
   var BITS = { a: 0, b: 1, select: 2, start: 3, right: 4, left: 5, up: 6, down: 7, r: 8, l: 9 }
-  // KeyboardEvent.code per action; hotkeys after the GBA buttons.
+  // KeyboardEvent.code per action; hotkeys after the GBA buttons. X and Y are kept on every
+  // page so a GBA page doesn't drop the account's DS bindings when it saves the map.
   var DEFAULT_KEYS = {
     a: 'KeyX', b: 'KeyZ', l: 'KeyA', r: 'KeyS', start: 'Enter', select: 'Backspace',
     up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+    x: 'KeyW', y: 'KeyQ',
     save: 'F2', load: 'F4', slot: 'F3',
   }
   var ACTIONS = Object.keys(DEFAULT_KEYS)
   // Standard gamepad mapping, by position (Nintendo layout: A is the right face button).
   var PAD = { a: 1, b: 0, l: 4, r: 5, select: 8, start: 9, up: 12, down: 13, left: 14, right: 15 }
   var PAD_NAMES = {
-    0: 'BUTTON_1', 1: 'BUTTON_2', 4: 'LEFT_TOP_SHOULDER', 5: 'RIGHT_TOP_SHOULDER',
+    0: 'BUTTON_1', 1: 'BUTTON_2', 2: 'BUTTON_3', 3: 'BUTTON_4', 4: 'LEFT_TOP_SHOULDER', 5: 'RIGHT_TOP_SHOULDER',
     8: 'SELECT', 9: 'START', 12: 'DPAD_UP', 13: 'DPAD_DOWN', 14: 'DPAD_LEFT', 15: 'DPAD_RIGHT',
   }
 
   var hub = null
+  var ds = false // a melonDS page (FR-07): one DS, both screens in one canvas, touch on the lower half
   var booting = false
   var cores = 0
   var local = [] // cores this page plays, in player order
@@ -81,10 +87,43 @@
   var audio = null
   var audioSettings = loadAudioSettings()
   var messageTimer = null
+  var build = null
+  var framesRun = 0
+  var crashed = false
+  var recent = [] // last console warnings/errors, sent with a crash report
 
   function post(msg, transfer) {
     parent.postMessage(msg, origin, transfer || [])
   }
+
+  ;['warn', 'error'].forEach(function (level) {
+    var original = console[level]
+    console[level] = function () {
+      var line = Array.prototype.map.call(arguments, String).join(' ')
+      recent.push(level + ': ' + line.slice(0, 500))
+      if (recent.length > 20) recent.shift()
+      original.apply(console, arguments)
+    }
+  })
+
+  // The core died (a WebAssembly trap, an abort): stop for good and tell the parent once, with what we know.
+  function crash(e) {
+    if (crashed) return
+    crashed = true
+    hub = null
+    post({
+      type: 'error',
+      crashed: true,
+      message: (e && e.message) || String(e),
+      stack: e && e.stack ? String(e.stack) : undefined,
+      frames: framesRun,
+      linked: linked,
+      build: build,
+      recent: recent.slice(),
+    })
+  }
+  window.addEventListener('error', function (e) { crash(e.error || e.message) })
+  window.addEventListener('unhandledrejection', function (e) { crash(e.reason) })
 
   function loadAudioSettings() {
     try {
@@ -240,9 +279,9 @@
     if (!state) return say('No state in slot ' + stateSlot)
     var p = hub._malloc(state.length)
     hub.HEAPU8.set(state, p)
-    hub._hub_state_load(core, p)
+    var loaded = hub._hub_state_load(core, p, state.length) // mGBA ignores the length
     hub._free(p)
-    say('Loaded state from slot ' + stateSlot)
+    say(loaded || !ds ? 'Loaded state from slot ' + stateSlot : 'Failed to load state')
   }
 
   // ------------------------------------------------------------ video and audio
@@ -255,13 +294,44 @@
       var canvas = document.createElement('canvas')
       canvas.width = size >>> 16
       canvas.height = size & 0xffff
+      canvas.style.aspectRatio = canvas.width + ' / ' + canvas.height
       canvas.tabIndex = 0
-      canvas.setAttribute('aria-label', local.length > 1 ? 'Player ' + (i + 1) : 'Game screen')
+      canvas.setAttribute('aria-label', local.length > 1 ? 'Player ' + (i + 1) : ds ? 'Game screens; the lower one is the touch screen' : 'Game screen')
+      if (ds) touchScreen(canvas)
       root.appendChild(canvas)
       var ctx = canvas.getContext('2d')
       return { core: core, ctx: ctx, image: ctx.createImageData(canvas.width, canvas.height) }
     })
     if (screens[0]) screens[0].ctx.canvas.focus()
+  }
+
+  // DS touch screen (FR-07): the lower half of the canvas, by mouse, pen or finger.
+  function touchScreen(canvas) {
+    var pointer = null
+    function at(e) {
+      var r = canvas.getBoundingClientRect()
+      var x = Math.floor(((e.clientX - r.left) * 256) / r.width)
+      var y = Math.floor(((e.clientY - r.top) * 384) / r.height) - 192
+      if (y < 0) return hub._hub_release() // slid onto the top screen
+      hub._hub_touch(Math.max(0, Math.min(255, x)), Math.min(191, y))
+    }
+    canvas.style.touchAction = 'none'
+    canvas.addEventListener('pointerdown', function (e) {
+      if (!hub || pointer !== null) return
+      pointer = e.pointerId
+      try { canvas.setPointerCapture(e.pointerId) } catch (err) { /* the pointer already went away */ }
+      at(e)
+    })
+    canvas.addEventListener('pointermove', function (e) {
+      if (hub && e.pointerId === pointer) at(e)
+    })
+    ;['pointerup', 'pointercancel'].forEach(function (type) {
+      canvas.addEventListener(type, function (e) {
+        if (e.pointerId !== pointer) return
+        pointer = null
+        if (hub) hub._hub_release()
+      })
+    })
   }
 
   function draw() {
@@ -407,6 +477,16 @@
     return [ptr, bytes.length]
   }
 
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script')
+      s.src = src
+      s.onload = resolve
+      s.onerror = function () { reject(new Error('Could not load the emulator.')) }
+      document.head.appendChild(s)
+    })
+  }
+
   async function boot(msg) {
     if (hub || booting) return
     booting = true
@@ -418,10 +498,21 @@
           }
         }
       }
+      ds = msg.platform === 'NDS'
+      if (ds) {
+        if (msg.games.length !== 1) throw new Error('A DS page runs one game.')
+        BITS.x = 10
+        BITS.y = 11
+        PAD.x = 3 // top face button
+        PAD.y = 2 // left face button
+        document.body.classList.add('ds')
+        await loadScript('ds/melonds-hub.js')
+      }
       await startAudio()
-      hub = await window.createMgbaHub({
+      var dir = ds ? 'ds/' : 'core/'
+      hub = await (ds ? window.createMelonHub : window.createMgbaHub)({
         locateFile: function (path) {
-          return 'core/' + path
+          return dir + path
         },
       })
       cores = msg.games.length
@@ -448,14 +539,14 @@
         if (initial) lastHash[local[j]] = await sha256(initial)
       }
       makeScreens()
-      var build = await fetch('core/build.json').then(function (r) { return r.json() }).catch(function () { return null })
+      build = await fetch(dir + 'build.json').then(function (r) { return r.json() }).catch(function () { return null })
       post({ type: 'started', build: build })
       reportControls()
       setInterval(function () {
         poll(false)
       }, POLL_MS)
     } catch (e) {
-      post({ type: 'error', message: e.message || String(e) })
+      post({ type: 'error', crashed: false, message: e.message || String(e), stack: e.stack ? String(e.stack) : undefined, recent: recent.slice() })
     }
   }
 
@@ -475,6 +566,7 @@
         waiting = true // a GBA cable parent waits for its child; the frame is dropped, not owed
         break
       }
+      framesRun++
       pushAudio(catchingUp && n < count - 1)
     }
     draw()

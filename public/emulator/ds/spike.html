@@ -1,0 +1,202 @@
+<!doctype html>
+<!--
+  Phase 4/5 spike page (not the product player): melonDS in WebAssembly with its Wi-Fi
+  tunnelled to the DS gateway (FR-38). The game file and save stay in this tab; only the
+  DS's network frames leave it. Sign in to the site first for the tunnel.
+  Keys: changeable under "Controls" (saved in this browser); mouse on the bottom screen = touch.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DS spike</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 16px; background: #111; color: #eee; }
+  canvas { display: block; width: 512px; max-width: 100%; image-rendering: pixelated; background: #000; }
+  #bottom { cursor: crosshair; touch-action: none; }
+  #stats { font-family: ui-monospace, monospace; margin: 8px 0; }
+  label { margin-right: 12px; }
+  #controls { margin: 8px 0; }
+  #bindings { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin: 8px 0; }
+  #bindings button { text-align: left; }
+  #bindings button.waiting { outline: 2px solid #fc0; }
+</style>
+</head>
+<body>
+<p>
+  <label>Game (.nds) <input id="rom" type="file" accept=".nds"></label>
+  <label>Save (.sav, optional) <input id="sav" type="file" accept=".sav"></label>
+  <button id="start">Start</button>
+  <button id="download" disabled>Download save</button>
+</p>
+<details id="controls">
+  <summary>Controls</summary>
+  <div id="bindings"></div>
+  <button id="reset-keys">Reset to defaults</button>
+  <span id="keys-hint">Click a button, then press the key you want. Esc cancels.</span>
+</details>
+<div id="stats">Pick your game file.</div>
+<canvas id="top" width="256" height="192"></canvas>
+<canvas id="bottom" width="256" height="192"></canvas>
+<script src="melonds-hub.js"></script>
+<script>
+// DS buttons in hub_set_keys bit order, with their default keys (KeyboardEvent.code).
+const BUTTONS = [
+  ['A', ['KeyZ']], ['B', ['KeyX']], ['Select', ['ShiftLeft', 'ShiftRight']], ['Start', ['Enter']],
+  ['Right', ['ArrowRight']], ['Left', ['ArrowLeft']], ['Up', ['ArrowUp']], ['Down', ['ArrowDown']],
+  ['R', ['KeyW']], ['L', ['KeyQ']], ['X', ['KeyS']], ['Y', ['KeyA']],
+]
+const STORE = 'ds-spike-keys'
+let bindings = BUTTONS.map(([, keys]) => keys) // per button, its keys
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE))
+  if (Array.isArray(saved) && saved.length === BUTTONS.length) bindings = saved
+} catch {}
+let KEYS = {} // code -> button bit
+let waiting = -1 // button waiting for a key
+const $ = (id) => document.getElementById(id)
+
+const keyName = (code) => code.replace(/^Key|^Digit/, '').replace(/^Arrow(.*)/, '$1 arrow').replace(/(Left|Right)$/, ' ($1)')
+function showBindings() {
+  KEYS = {}
+  bindings.forEach((codes, bit) => codes.forEach((c) => (KEYS[c] = bit)))
+  $('bindings').replaceChildren(...BUTTONS.map(([name], bit) => {
+    const b = document.createElement('button')
+    b.textContent = `${name}: ${waiting === bit ? 'press a key…' : bindings[bit].map(keyName).join(', ') || 'none'}`
+    b.className = waiting === bit ? 'waiting' : ''
+    b.onclick = () => { waiting = bit; showBindings() }
+    return b
+  }))
+  try { localStorage.setItem(STORE, JSON.stringify(bindings)) } catch {}
+}
+$('reset-keys').onclick = () => { bindings = BUTTONS.map(([, keys]) => keys); waiting = -1; showBindings() }
+showBindings()
+const stats = $('stats')
+let hub, pressed = 0, net = 'offline', sent = 0, received = 0
+
+async function bytesOf(input) {
+  const f = input.files[0]
+  return f ? new Uint8Array(await f.arrayBuffer()) : null
+}
+
+function copyIn(bytes) {
+  const p = hub._malloc(bytes.length)
+  hub.HEAPU8.set(bytes, p)
+  return p
+}
+
+async function tunnel() {
+  const res = await fetch('/api/ds/tunnel', { method: 'POST' })
+  if (!res.ok) { net = `offline (${res.status})`; return null }
+  const { url, ticket, mac } = await res.json()
+  const ws = new WebSocket(`${url}/?t=${encodeURIComponent(ticket)}`)
+  ws.binaryType = 'arraybuffer'
+  ws.onopen = () => (net = `tunnel open, MAC ${mac}`)
+  ws.onclose = (e) => (net = `tunnel closed (${e.code} ${e.reason})`)
+  ws.onmessage = (e) => {
+    const f = new Uint8Array(e.data)
+    const p = copyIn(f)
+    hub._hub_net_push(p, f.length)
+    hub._free(p)
+    received++
+  }
+  hub.onFirmware = keepWifi
+  hub.onNetSend = (ptr, len) => {
+    if (ws.readyState === 1) { ws.send(hub.HEAPU8.slice(ptr, ptr + len)); sent++ }
+  }
+  return mac.split(':').map((h) => parseInt(h, 16))
+}
+
+// FR-39: the DS keeps its Nintendo WFC user ID in its Wi-Fi settings; the site keeps those per account.
+const WIFI_BYTES = 768
+async function savedWifi() {
+  const res = await fetch('/api/ds/console')
+  const b64 = res.ok ? (await res.json()).wifiSettings : null
+  return b64 ? Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)) : null
+}
+let wifiTimer
+function keepWifi() {
+  clearTimeout(wifiTimer) // the DS writes in several pieces; send once it's done
+  wifiTimer = setTimeout(() => {
+    const p = hub._hub_wifi_settings()
+    fetch('/api/ds/console', { method: 'PUT', body: hub.HEAPU8.slice(p, p + WIFI_BYTES) })
+  }, 2000)
+}
+
+$('start').onclick = async () => {
+  const rom = await bytesOf($('rom'))
+  if (!rom) return
+  const sav = await bytesOf($('sav'))
+  $('start').disabled = true
+  hub = await createMelonHub()
+  const mac = await tunnel()
+  const wifi = mac ? await savedWifi() : null
+  const ok = hub._hub_boot(copyIn(rom), rom.length, sav ? copyIn(sav) : 0, sav ? sav.length : 0,
+    mac ? copyIn(new Uint8Array(mac)) : 0, wifi ? copyIn(wifi) : 0)
+  if (!ok) { stats.textContent = 'Not a DS game this build can read.'; return }
+  $('download').disabled = false
+  run()
+}
+
+$('download').onclick = () => {
+  const save = hub.HEAPU8.slice(hub._hub_save(), hub._hub_save() + hub._hub_save_length())
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([save])), download: 'game.sav' })
+  a.click()
+}
+
+function run() {
+  const ctx = [$('top').getContext('2d'), $('bottom').getContext('2d')]
+  const img = [ctx[0].createImageData(256, 192), ctx[1].createImageData(256, 192)]
+  const FRAME_MS = 1000 / 59.8261
+  let due = performance.now(), emuMs = 0, frames = 0, shown = performance.now()
+  function tick(now) {
+    // shortcut: drops frames behind by more than 4 instead of catching up; no audio yet.
+    if (now - due > FRAME_MS * 4) due = now
+    while (due <= now) {
+      const t = performance.now()
+      hub._hub_set_keys(0, pressed)
+      hub._hub_run_frame()
+      emuMs += performance.now() - t
+      frames++
+      due += FRAME_MS
+    }
+    const px = hub._hub_video(0)
+    for (let s = 0; s < 2; s++) {
+      img[s].data.set(hub.HEAPU8.subarray(px + s * 256 * 192 * 4, px + (s + 1) * 256 * 192 * 4))
+      ctx[s].putImageData(img[s], 0, 0)
+    }
+    if (now - shown > 1000) {
+      stats.textContent = `${(frames * 1000 / (now - shown)).toFixed(1)} fps · emulation ${(emuMs / frames).toFixed(2)} ms/frame (budget 16.7) · ${net} · frames out ${sent} in ${received}`
+      frames = 0; emuMs = 0; shown = now
+    }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+addEventListener('keydown', (e) => {
+  if (waiting >= 0) {
+    e.preventDefault()
+    if (e.code !== 'Escape') {
+      bindings = bindings.map((codes) => codes.filter((c) => c !== e.code)) // a key drives one button
+      bindings[waiting] = [e.code]
+      pressed = 0
+    }
+    waiting = -1
+    return showBindings()
+  }
+  if (e.code in KEYS) { pressed |= 1 << KEYS[e.code]; e.preventDefault() }
+})
+addEventListener('keyup', (e) => { if (e.code in KEYS) pressed &= ~(1 << KEYS[e.code]) })
+const bottom = $('bottom')
+function touch(e) {
+  if (!hub || !(e.buttons & 1)) return hub && hub._hub_release()
+  const r = bottom.getBoundingClientRect()
+  hub._hub_touch(Math.max(0, Math.min(255, ((e.clientX - r.left) * 256) / r.width | 0)), Math.max(0, Math.min(191, ((e.clientY - r.top) * 192) / r.height | 0)))
+}
+bottom.addEventListener('pointerdown', (e) => { bottom.setPointerCapture(e.pointerId); touch(e) })
+bottom.addEventListener('pointermove', touch)
+bottom.addEventListener('pointerup', () => hub && hub._hub_release())
+</script>
+</body>
+</html>

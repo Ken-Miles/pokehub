@@ -206,8 +206,10 @@ export class SaveSync {
       if (res.status === 401 || res.status === 429 || res.status >= 500) return this.retryLater()
 
       // Anything else (wrong game, unreadable save) will never succeed: drop it.
-      const body: { message?: string } = await res.json().catch(() => ({}))
+      const body: { error?: string; message?: string } = await res.json().catch(() => ({}))
       await this.o.queue.delete(this.o.slotId, pending.sha256)
+      // A new DS game writes to its save memory before the player first saves; that half-made save can't be read yet.
+      if (body.error === 'unrecognised_save' && this.versionId === 'none') continue
       return this.status({ state: 'rejected', message: body.message ?? 'That save was rejected.' })
     }
   }

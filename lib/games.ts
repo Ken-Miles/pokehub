@@ -54,7 +54,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
   },
   NDS: {
     name: 'Nintendo DS',
-    availability: 'planned',
+    availability: 'playable',
     runsIn: 'browser',
     identifiedBy: 'rom-header',
     romExtension: '.nds',

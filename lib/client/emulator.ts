@@ -8,6 +8,7 @@
 import type { Action } from '@/lib/client/controls'
 
 export const GBA_FPS = 59.7275
+export const DS_FPS = 59.8261
 const FRAME_MS = 1000 / GBA_FPS
 /** Never run more than this many frames to catch up after a hitch; drop the rest. */
 const MAX_CATCH_UP = 3
@@ -20,8 +21,8 @@ export interface GameBytes {
 }
 
 export interface BootOptions {
-  /** Default 'GBA'. A GB page runs one core; its cable goes over the network (CableMessage). */
-  platform?: 'GB' | 'GBA'
+  /** Default 'GBA'. A GB page runs one core; its cable goes over the network (CableMessage). An NDS page runs one DS (FR-07). */
+  platform?: 'GB' | 'GBA' | 'NDS'
   games: GameBytes[]
   /** Cores this page plays (one per local player). */
   local: number[]
@@ -150,17 +151,40 @@ export class EmulatorFrame {
   }
 }
 
+/** Send the iframe's `error` message to the server's logs; best effort, trimmed to what the server accepts. */
+export function reportCrash(where: 'solo' | 'link', id: string, m: Record<string, unknown>) {
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : undefined)
+  const report = {
+    where,
+    id,
+    message: text(m.message, 1000) ?? 'unknown',
+    stack: text(m.stack, 4000),
+    crashed: !!m.crashed,
+    frames: typeof m.frames === 'number' ? m.frames : undefined,
+    linked: typeof m.linked === 'boolean' ? m.linked : undefined,
+    build: (m.build as Record<string, string> | null) ?? undefined,
+    recent: Array.isArray(m.recent) ? m.recent.slice(-20).map((l) => String(l).slice(0, 500)) : undefined,
+    userAgent: navigator.userAgent.slice(0, 300),
+  }
+  void fetch('/api/emulator/crash', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(report),
+    keepalive: true,
+  }).catch(() => undefined)
+}
+
 /** How many frames are due after `elapsedMs` with `debtMs` carried over; pure for tests. */
-export function framesDue(elapsedMs: number, debtMs: number): { frames: number; debtMs: number } {
+export function framesDue(elapsedMs: number, debtMs: number, frameMs = FRAME_MS): { frames: number; debtMs: number } {
   let debt = debtMs + Math.max(0, elapsedMs)
-  let frames = Math.floor(debt / FRAME_MS)
-  debt -= frames * FRAME_MS
+  let frames = Math.floor(debt / frameMs)
+  debt -= frames * frameMs
   if (frames > MAX_CATCH_UP) frames = MAX_CATCH_UP // a hitch or a hidden tab: don't sprint
   return { frames, debtMs: debt }
 }
 
 /**
- * Runs frames at the GBA's own rate. `step` runs one due frame and resolves
+ * Runs frames at the console's own rate (the GBA's unless `fps` says otherwise). `step` runs one due frame and resolves
  * false when it couldn't (a lockstep stall), which leaves the frame due.
  */
 export class FrameClock {
@@ -170,7 +194,11 @@ export class FrameClock {
   private busy = false
   private stopped = true
 
-  constructor(private readonly step: () => Promise<boolean>) {}
+  private readonly frameMs: number
+
+  constructor(private readonly step: () => Promise<boolean>, fps = GBA_FPS) {
+    this.frameMs = 1000 / fps
+  }
 
   start() {
     if (!this.stopped) return
@@ -181,7 +209,7 @@ export class FrameClock {
       if (this.stopped) return
       this.raf = requestAnimationFrame(tick)
       if (this.busy) return
-      const due = framesDue(now - this.last, this.debt)
+      const due = framesDue(now - this.last, this.debt, this.frameMs)
       this.last = now
       this.debt = due.debtMs
       this.busy = true
@@ -189,7 +217,7 @@ export class FrameClock {
         let ran = 0
         for (; ran < due.frames; ran++) if (!(await this.step())) break
         // A stalled frame stays due, but only one: catching up after a stall would make the game lurch.
-        if (ran < due.frames) this.debt = Math.min(this.debt + FRAME_MS, FRAME_MS)
+        if (ran < due.frames) this.debt = Math.min(this.debt + this.frameMs, this.frameMs)
       } finally {
         this.busy = false
       }

@@ -132,6 +132,21 @@ describe('SaveSync stops', () => {
     expect(st.last()).toEqual({ state: 'rejected', message: 'That save belongs to a different game.' })
     expect(queue.items.size).toBe(0)
   })
+
+  it("422 unrecognised_save before the first save: a new game's half-made save is dropped quietly (FR-07)", async () => {
+    const { sync, st, queue } = setup([{ status: 422, body: { error: 'unrecognised_save', message: "That save file couldn't be read." } }])
+    await sync.boot('none', null)
+    await sync.submit(fakeSave(1))
+    expect(st.last()).toEqual({ state: 'synced', flagged: false })
+    expect(queue.items.size).toBe(0)
+  })
+
+  it('422 unrecognised_save once the slot has a save is still shown', async () => {
+    const { sync, st } = setup([{ status: 422, body: { error: 'unrecognised_save', message: "That save file couldn't be read." } }])
+    await sync.boot('v0', null)
+    await sync.submit(fakeSave(1))
+    expect(st.last()).toEqual({ state: 'rejected', message: "That save file couldn't be read." })
+  })
 })
 
 describe('SaveSync boot', () => {

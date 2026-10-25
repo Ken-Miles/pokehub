@@ -24,6 +24,7 @@
     "bots:create": "tsx scripts/create-bot.ts",
     "roms:import": "tsx scripts/import-nointro-dat.ts",
     "emulator:build": "sh scripts/build-emulator.sh",
+    "emulator:build:ds": "sh scripts/build-emulator.sh public/emulator/ds emulator/melonds",
     "spike:link": "tsx spikes/link-latency/server.ts",
     "spike:link:load": "tsx spikes/link-latency/load.ts"
   },
