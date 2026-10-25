@@ -130,7 +130,7 @@ function NewSlot({ busy, onCreate }: { busy: boolean; onCreate: (o: 'NEW' | 'IMP
         <FileDrop
           label="Save file (.sav)"
           hint="From a cartridge dump or another emulator — imported Pokémon start unverified"
-          accept=".sav,.srm"
+          accept=".sav,.srm,.dsv"
           file={save}
           onFile={setSave}
         />

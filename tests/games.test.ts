@@ -7,6 +7,7 @@ import {
   readNdsHeader,
   readRomHeader,
   saveFamilyMatchesGame,
+  withoutDesmumeFooter,
 } from '@/lib/games'
 import { fakeGbHeader } from './helpers/client-sync'
 
@@ -128,7 +129,18 @@ describe('save sizes', () => {
     expect(isAcceptedSaveSize('GBA', 131_072)).toBe(true)
     expect(isAcceptedSaveSize('GBA', 524_288)).toBe(false)
     expect(isAcceptedSaveSize('NDS', 524_288)).toBe(true)
+    expect(isAcceptedSaveSize('NDS', 524_410)).toBe(true) // DeSmuME .dsv
     expect(isAcceptedSaveSize('N3DS', 0x76000)).toBe(true) // Omega Ruby / Alpha Sapphire
+  })
+  it('strips a DeSmuME .dsv footer to the raw 512 KB save, and leaves raw saves alone', () => {
+    const raw = new Uint8Array(0x80000).fill(0xab)
+    const text = '|<--Snip above here to create a raw sav by excluding this DeSmuME savedata footer:'
+    const fields = new Uint8Array(new Uint32Array([0x7f801, 0x80000, 6, 3, 0x80000, 0]).buffer)
+    const footer = new Uint8Array([...new TextEncoder().encode(text), ...fields, ...new TextEncoder().encode('|-DESMUME SAVE-|')])
+    expect(footer.length).toBe(122)
+    const dsv = new Uint8Array([...raw, ...footer])
+    expect(withoutDesmumeFooter(dsv)).toEqual(raw)
+    expect(withoutDesmumeFooter(raw)).toBe(raw)
   })
   it('keeps every limit far below a game file', () => {
     expect(maxSaveBytes('GBA')).toBe(131_088)

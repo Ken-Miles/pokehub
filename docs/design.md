@@ -112,7 +112,8 @@ through the save pipeline.
   screens in one 256×384 canvas (top over bottom), the lower half is the touch screen (mouse,
   pen or finger), X/Y keys and touch buttons, save states in memory, audio at the page's rate,
   RTC from the wall clock. `FrameClock` runs at 59.8261 fps for DS. Saves go through the same
-  SaveSync/ingest path (512 KB). The glue reports no save until the game writes one; a new game
+  SaveSync/ingest path (512 KB); a DeSmuME `.dsv` (512 KB + 122-byte footer) is accepted and
+  `ingestSave` stores it raw (`withoutDesmumeFooter`). The glue reports no save until the game writes one; a new game
   that writes an unreadable save before the player's first save is dropped quietly (only while
   the slot has no version). Not on the product page yet: the Wi-Fi tunnel (Phase 5), a screen
   layout switch. Self-check: `spikes/ds-wifi/glue-check.mjs <game.nds>`.

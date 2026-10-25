@@ -30,6 +30,8 @@ export interface PlatformInfo {
   phase: string
 }
 
+const DESMUME_FOOTER = 122
+
 export const PLATFORMS: Record<Platform, PlatformInfo> = {
   GB: {
     name: 'Game Boy',
@@ -59,7 +61,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     identifiedBy: 'rom-header',
     romExtension: '.nds',
     emulatorCore: 'nds',
-    saveSizes: [0x80000], // 512 KB raw (melonDS). DeSmuME .dsv footers: not yet accepted
+    saveSizes: [0x80000, 0x80000 + DESMUME_FOOTER], // 512 KB raw (melonDS), or a DeSmuME .dsv (stored raw)
     phase: 'Phase 4',
   },
   N3DS: {
@@ -174,6 +176,17 @@ export function gamesOn(platform: Platform): (CatalogEntry & { prefix: string })
 /** Does the save family the save service reports match the slot's game? */
 export function saveFamilyMatchesGame(family: string, platform: Platform, gameCode: string): boolean {
   return identifyGame(platform, gameCode)?.family === family
+}
+
+/**
+ * A DeSmuME .dsv is the raw save, then a 122-byte footer: a text line, six u32s
+ * (sizes, type) and "|-DESMUME SAVE-|". Returns the raw save, or `bytes` as they are.
+ */
+export function withoutDesmumeFooter(bytes: Uint8Array): Uint8Array {
+  const cookie = '|-DESMUME SAVE-|'
+  if (bytes.length <= DESMUME_FOOTER) return bytes
+  const tail = new TextDecoder('latin1').decode(bytes.subarray(bytes.length - cookie.length))
+  return tail === cookie ? bytes.subarray(0, bytes.length - DESMUME_FOOTER) : bytes
 }
 
 export function isAcceptedSaveSize(platform: Platform, size: number): boolean {

@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import type { GameSlot, SaveSource, SaveVersion } from '@prisma/client'
 import { audit } from '@/lib/audit'
 import { prisma } from '@/lib/db'
-import { saveFamilyMatchesGame } from '@/lib/games'
+import { saveFamilyMatchesGame, withoutDesmumeFooter } from '@/lib/games'
 import { HttpError } from '@/lib/http'
 import { emitToUser } from '@/lib/realtime'
 import type { Conflict } from '@/lib/registry'
@@ -36,10 +36,12 @@ export async function ingestSave(opts: {
   actorId: string
   restoredFromId?: string
 }): Promise<IngestResult> {
-  const { slot, bytes, parentVersionId, source, actorId } = opts
+  const { slot, parentVersionId, source, actorId } = opts
 
-  const rejection = source === 'IMPORT' ? checkImport(slot, bytes.length) : checkUpload(slot, parentVersionId, bytes.length)
+  const rejection = source === 'IMPORT' ? checkImport(slot, opts.bytes.length) : checkUpload(slot, parentVersionId, opts.bytes.length)
   if (rejection) throw HttpError.from(rejection)
+  // Versions are stored raw, the form the emulator boots with (FR-07).
+  const bytes = slot.platform === 'NDS' ? withoutDesmumeFooter(opts.bytes) : opts.bytes
 
   let parsed: ParsedSave
   try {
