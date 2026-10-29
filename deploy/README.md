@@ -5,7 +5,7 @@ Every deploy builds the idle colour, migrates, health-checks it, and only then
 moves traffic. The live colour never stops serving.
 
 ```
- https://pokehub.aidenpearce.space ─► Cloudflare tunnel ─► nginx 127.0.0.1:80 ─► pokehub_backend ─┬─► blue  :4000 (pokehub-blue.service)
+ https://pktrade.aidenpearce.space ─► Cloudflare tunnel ─► nginx 127.0.0.1:80 ─► pokehub_backend ─┬─► blue  :4000 (pokehub-blue.service)
                                                                     └─► red   :4001 (pokehub-red.service)
                                    both colours + worker ─► Postgres :5433, Redis :6379,
                                                             S3 (SeaweedFS) :9000, save service (unix socket)
@@ -94,7 +94,7 @@ Shorthand: "on macserver" means `ssh macserver`.
    - Subdomain `pokehub`, domain `aidenpearce.space`
    - Service `HTTP` → `localhost:80`
 
-   Visitors use `https://pokehub.aidenpearce.space` with no port. Cloudflare provides the
+   Visitors use `https://pktrade.aidenpearce.space` with no port. Cloudflare provides the
    TLS certificate. If the hostname changes later, change it here, in
    `NEXTAUTH_URL` in `shared/.env`, and in the nginx `server_name`.
 

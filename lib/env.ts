@@ -24,7 +24,7 @@ const schema = z.object({
   // Email (lib/mailer.ts). Resend's free plan: 100/day and 3,000/month, overage is billed,
   // so the app counts its own sends and stops before either cap.
   RESEND_API_KEY: z.string().optional(),
-  MAIL_FROM: z.string().default('Pokémon Hub <noreply@pokehub.aidenpearce.space>'),
+  MAIL_FROM: z.string().default('Pokémon Hub <noreply@pktrade.aidenpearce.space>'),
   MAIL_DAILY_LIMIT: z.coerce.number().int().min(1).default(90),
   MAIL_MONTHLY_LIMIT: z.coerce.number().int().min(1).default(2900),
   ALLOW_UNLISTED_ROMS: z

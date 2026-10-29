@@ -32,11 +32,11 @@ describe('mailer budget and Resend', () => {
   })
 
   it('sends through Resend from the noreply address', async () => {
-    const m = await load({ NODE_ENV: 'production', RESEND_API_KEY: 're_test', NEXTAUTH_SECRET: 'x'.repeat(20), NEXTAUTH_URL: 'https://pokehub.aidenpearce.space', DATABASE_URL: 'postgresql://x', S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 'b' })
+    const m = await load({ NODE_ENV: 'production', RESEND_API_KEY: 're_test', NEXTAUTH_SECRET: 'x'.repeat(20), NEXTAUTH_URL: 'https://pktrade.aidenpearce.space', DATABASE_URL: 'postgresql://x', S3_BUCKET: 'b', S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 'b' })
     await m.sendMail('ann@example.com', 'Verify', 'link')
     const [url, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(url).toBe('https://api.resend.com/emails')
-    expect(JSON.parse(init.body)).toMatchObject({ from: 'Pokémon Hub <noreply@pokehub.aidenpearce.space>', to: ['ann@example.com'], subject: 'Verify' })
+    expect(JSON.parse(init.body)).toMatchObject({ from: 'Pokémon Hub <noreply@pktrade.aidenpearce.space>', to: ['ann@example.com'], subject: 'Verify' })
   })
 
   it('refuses when the daily cap is reached, and counts only real sends', async () => {

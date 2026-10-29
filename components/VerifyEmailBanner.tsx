@@ -23,7 +23,7 @@ export function VerifyEmailBanner({ result, welcome }: { result: string | null; 
       {result === '0'
         ? 'That verification link is invalid, used or expired. There is no resend yet, so this account can only play and sync.'
         : welcome
-          ? 'Welcome! We emailed you a verification link (from noreply@pokehub.aidenpearce.space). Check your spam folder too.'
+          ? 'Welcome! We emailed you a verification link (from noreply@pktrade.aidenpearce.space). Check your spam folder too.'
           : 'Your email is not verified yet.'}{' '}
       You can play and sync now; verify to add friends and trade.
     </Box>
