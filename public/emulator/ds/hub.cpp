@@ -1,4 +1,4 @@
-// Pokémon Hub's DS emulator glue: unmodified melonDS (GPL-3.0) built to WebAssembly
+// Pokémon Hub's DS emulator glue: melonDS (GPL-3.0, access point renamed in Dockerfile) built to WebAssembly
 // (ADR-011, Phase 4 spike). This file is ours and is published with the build, as the
 // GPL requires. It is the melonDS "frontend": the Platform functions plus a small C API
 // for the page. Single-threaded: no JIT, software 3D, no OpenGL.
@@ -21,6 +21,7 @@
 #include "Platform.h"
 #include "Savestate.h"
 #include "SPI_Firmware.h"
+#include "WifiAP.h"
 
 using namespace melonDS;
 
@@ -190,10 +191,19 @@ static int boot(u8* rom, u32 romLen, const u8* save, u32 saveLen, const u8* mac,
     {
         auto& header = args.Firmware.GetHeader();
         memcpy(header.MacAddr.data(), mac, 6);
-        header.MacAddr[0] &= 0xFC; // never a broadcast MAC
+        header.MacAddr[0] &= 0xFE; // never a multicast MAC; keeps the locally administered bit the gateway expects
         header.UpdateChecksum();
     }
     if (wifi) memcpy(args.Firmware.GetWifiAccessPointPosition(), wifi, HUB_WIFI_BYTES);
+    // Connections saved for the access point's old names (melonDS presets connection 1 to
+    // "melonAP") point at its name in this build, so new and existing accounts both find it.
+    for (auto& ap : args.Firmware.GetAccessPoints())
+        if (!strncmp(ap.SSID, "melonAP", sizeof(ap.SSID)) || !strncmp(ap.SSID, "PokemonHub5G", sizeof(ap.SSID)))
+        {
+            memset(ap.SSID, 0, sizeof(ap.SSID));
+            strncpy(ap.SSID, WifiAP::APName, sizeof(ap.SSID));
+            if (ap.SSIDLength) ap.SSIDLength = strlen(WifiAP::APName);
+        }
     args.Firmware.UpdateChecksums();
     nds = std::make_unique<NDS>(std::move(args), nullptr);
     nds->SPU.SetOutputSampleRate(sampleRate);

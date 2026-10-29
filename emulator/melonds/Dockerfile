@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Pokémon Hub's DS emulator: unmodified melonDS (GPL-3.0) built to WebAssembly with our
+# Pokémon Hub's DS emulator: melonDS (GPL-3.0, only its access point renamed) built to WebAssembly with our
 # glue (hub.cpp) — ADR-011, Phase 4 spike. Pinned to a melonDS release and commit and to
 # the same Emscripten release as the mGBA build.
 #
@@ -16,6 +16,10 @@ ARG MELONDS_COMMIT=b86390e4428bf38ce4c1ce0e9ca446d6d25955e8
 
 RUN git clone --quiet --depth 1 --branch "${MELONDS_REF}" https://github.com/melonDS-emu/melonDS.git /melonds \
  && test "$(git -C /melonds rev-parse HEAD)" = "${MELONDS_COMMIT}"
+
+# Our one change to melonDS: the built-in access point's name, as games list it (FR-38).
+RUN sed -i 's/APName = "melonAP"/APName = "PokemonHubWFC"/' /melonds/src/WifiAP.cpp \
+ && grep -q 'APName = "PokemonHubWFC"' /melonds/src/WifiAP.cpp
 
 # The core library only: no Qt/SDL frontend, no JIT, no OpenGL, no GDB stub.
 WORKDIR /melonds/build

@@ -477,6 +477,38 @@
     return [ptr, bytes.length]
   }
 
+  // FR-38/FR-39: the DS's Wi-Fi as Ethernet frames over a tunnel to the DS gateway, with the
+  // account's MAC and saved Wi-Fi settings (they hold its WFC user ID). Null when DS online is off.
+  async function dsNetwork() {
+    var res = await fetch('/api/ds/tunnel', { method: 'POST' }).catch(function () { return null })
+    if (!res || !res.ok) return null
+    var t = await res.json()
+    var ws = new WebSocket(t.url + '/?t=' + encodeURIComponent(t.ticket))
+    ws.binaryType = 'arraybuffer'
+    ws.onmessage = function (e) {
+      var f = copyIn(e.data)
+      hub._hub_net_push(f[0], f[1]) // copied
+      hub._free(f[0])
+    }
+    ws.onclose = function (e) { console.warn('DS network tunnel closed: ' + e.code + ' ' + e.reason) }
+    hub.onNetSend = function (ptr, len) {
+      if (ws.readyState === 1) ws.send(hub.HEAPU8.slice(ptr, ptr + len))
+    }
+    var wifiTimer = null
+    hub.onFirmware = function () {
+      clearTimeout(wifiTimer) // the DS writes its settings in several pieces; save once it's done
+      wifiTimer = setTimeout(function () {
+        var p = hub._hub_wifi_settings()
+        fetch('/api/ds/console', { method: 'PUT', body: hub.HEAPU8.slice(p, p + 768) })
+      }, 2000)
+    }
+    var saved = await fetch('/api/ds/console').then(function (r) { return r.ok ? r.json() : {} }).catch(function () { return {} })
+    return {
+      mac: new Uint8Array(t.mac.split(':').map(function (h) { return parseInt(h, 16) })),
+      wifi: saved.wifiSettings ? Uint8Array.from(atob(saved.wifiSettings), function (c) { return c.charCodeAt(0) }) : null,
+    }
+  }
+
   function loadScript(src) {
     return new Promise(function (resolve, reject) {
       var s = document.createElement('script')
@@ -526,6 +558,16 @@
         var g = msg.games[i]
         var rom = copyIn(g.rom)
         var save = copyIn(g.save)
+        if (ds) {
+          var net = await dsNetwork()
+          var mac = copyIn(net && net.mac)
+          var wifi = copyIn(net && net.wifi)
+          var ok = hub._hub_boot(rom[0], rom[1], save[0], save[1], mac[0], wifi[0]) // takes the game and save
+          if (mac[0]) hub._free(mac[0])
+          if (wifi[0]) hub._free(wifi[0])
+          if (!ok) throw new Error('Game 1 could not be loaded.')
+          continue
+        }
         var patch = copyIn(g.patch)
         if (!hub._hub_load(i, rom[0], rom[1], save[0], save[1], patch[0], patch[1])) {
           throw new Error('Game ' + (i + 1) + ' could not be loaded.')

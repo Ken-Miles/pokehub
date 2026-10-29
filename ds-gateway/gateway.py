@@ -133,15 +133,29 @@ async def handler(ws):
     sender = asyncio.create_task(to_browser())
     log('open', user=user, mac=mac_text, tap=name)
     allowance, last = BURST, time.monotonic()
+    counts = {'in': 0, 'shape': 0, 'mac': 0, 'l3': 0, 'rate': 0}
+
+    def drop(reason, frame):
+        counts[reason] += 1
+        if counts[reason] == 1:  # the first of each kind says what's wrong without flooding the log
+            log('drop', user=user, tap=name, reason=reason, head=frame[:34].hex() if isinstance(frame, bytes) else type(frame).__name__)
+
     try:
         async for frame in ws:
-            if not isinstance(frame, bytes) or not 14 <= len(frame) <= MAX_FRAME or frame[6:12] != mac:
+            counts['in'] += 1
+            if not isinstance(frame, bytes) or not 14 <= len(frame) <= MAX_FRAME:
+                drop('shape', frame)
+                continue
+            if frame[6:12] != mac:
+                drop('mac', frame)
                 continue
             if not l3_allowed(frame, lease_ip(mac_text)) and not l3_allowed(frame, lease_ip(mac_text, fresh=True)):
+                drop('l3', frame)
                 continue
             now = time.monotonic()
             allowance, last = min(BURST, allowance + (now - last) * RATE), now
             if allowance < len(frame):
+                drop('rate', frame)
                 continue
             allowance -= len(frame)
             try:
@@ -156,7 +170,7 @@ async def handler(ws):
         os.close(fd)
         if tunnels.get(user) is ws:
             del tunnels[user], macs[mac_text]
-        log('close', user=user, tap=name)
+        log('close', user=user, tap=name, frames=counts)
 
 
 def dwc_decode(v):
