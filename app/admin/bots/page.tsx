@@ -12,14 +12,15 @@ interface Screen {
 /** A bot that sent nothing for this long has stopped, or its host has. */
 const STALE_MS = 3000
 
-// GBA button bits (bots/core.ts KEY), on the emulator's default keys (public/emulator/player.js).
+// Button bits (bots/core.ts KEY), on the emulator's default keys (public/emulator/player.js); X and Y only reach a DS.
 // shortcut: ignores an admin's own remapped controls; read them from /api/account/controls if anyone asks.
-const KEYBOARD: Record<string, number> = { KeyX: 1, KeyZ: 2, Backspace: 4, Enter: 8, ArrowRight: 16, ArrowLeft: 32, ArrowUp: 64, ArrowDown: 128, KeyS: 256, KeyA: 512 }
+// shortcut: no touch screen; send hub_touch positions as a bot:touch event if an admin needs to tap.
+const KEYBOARD: Record<string, number> = { KeyX: 1, KeyZ: 2, Backspace: 4, Enter: 8, ArrowRight: 16, ArrowLeft: 32, ArrowUp: 64, ArrowDown: 128, KeyS: 256, KeyA: 512, KeyW: 1024, KeyQ: 2048 }
 const PAD: { label: string; name: string; bit: number }[][] = [
   [{ label: 'L', name: 'L', bit: 512 }, { label: 'R', name: 'R', bit: 256 }],
   [{ label: '←', name: 'Left', bit: 32 }, { label: '↑', name: 'Up', bit: 64 }, { label: '↓', name: 'Down', bit: 128 }, { label: '→', name: 'Right', bit: 16 }],
   [{ label: 'Select', name: 'Select', bit: 4 }, { label: 'Start', name: 'Start', bit: 8 }],
-  [{ label: 'B', name: 'B', bit: 2 }, { label: 'A', name: 'A', bit: 1 }],
+  [{ label: 'Y', name: 'Y (DS)', bit: 2048 }, { label: 'X', name: 'X (DS)', bit: 1024 }, { label: 'B', name: 'B', bit: 2 }, { label: 'A', name: 'A', bit: 1 }],
 ]
 
 /**
@@ -122,9 +123,8 @@ export default function AdminBotsPage() {
               <img
                 src={s.url}
                 alt={`${name}'s screen`}
-                width={480}
                 height={320}
-                className={`h-auto max-w-full rounded-md border border-line ${stale ? 'opacity-40' : ''}`}
+                className={`h-80 w-auto max-w-full rounded-md border border-line ${stale ? 'opacity-40' : ''}`}
                 style={{ imageRendering: 'pixelated' }}
               />
               <figcaption className="text-sm">

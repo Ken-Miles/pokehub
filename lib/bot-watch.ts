@@ -19,10 +19,10 @@ import { isAdmin } from '@/lib/rbac'
 const WATCHERS = 'bots:watchers'
 const BOTS = 'bots'
 const botRoom = (bot: string) => `bot:${bot}`
-/** All ten GBA buttons (bots/core.ts KEY). */
-const KEYS_MAX = 0x3ff
-/** A 240×160 RGBA PNG; even an incompressible one is under this. */
-export const SCREEN_MAX_BYTES = 200_000
+/** All twelve buttons: the GBA's ten and the DS's X and Y (bots/core.ts KEY). */
+const KEYS_MAX = 0xfff
+/** A DS's 256×384 RGBA PNG (a GBA's is 240×160); even an incompressible one is under this. */
+export const SCREEN_MAX_BYTES = 400_000
 
 export function screenOk(m: unknown): m is { png: Buffer; status: string } {
   if (!m || typeof m !== 'object') return false

@@ -38,6 +38,12 @@ async function running(name: string): Promise<Bot> {
   return b
 }
 
+async function emerald(name: string): Promise<Bot> {
+  const b = await running(name)
+  if (!b.gba) throw new Error(`${name} is playing a DS game; walk and where read Emerald's memory.`)
+  return b
+}
+
 /** Party position as people say it (1–6) → the game's 0–5. */
 function party(arg: string): number {
   const n = Number(arg)
@@ -46,7 +52,7 @@ function party(arg: string): number {
 }
 
 const HELP = `
-  setup <bot> <code> [save]   new slot for that game (e.g. BPEE) from the games folder; import the save if given
+  setup <bot> <code> [save]   new slot for that GBA or DS game (e.g. BPEE, IRBO) from the games folder; import the save if given
   start <bot> [slot#]         boot the bot's slot from its cloud save and go online
   stop <bot>                  upload the save and go offline
   list                        bots and what they're doing
@@ -58,7 +64,8 @@ const HELP = `
   leave <bot>                 leave the wireless room (the host closes it)
   trade <botA> <n> <botB> <m> botA offers party n, botB party m: cable, Trade Center, trade, save, leave
   club <bot> <n>              over the cable already plugged in, or in the Trade Center over wireless (a person may be on the other end), trade party n
-  press <bot> <button> [frames]   A B SELECT START RIGHT LEFT UP DOWN R L
+  press <bot> <button> [frames]   A B SELECT START RIGHT LEFT UP DOWN R L, and X Y on a DS
+  touch <bot> <x> <y> [frames]    tap the DS's lower screen (x 0–255, y 0–191)
   walk <bot> <x> <y>          walk on the current map (Emerald)
   where <bot>                 map, position, screen (Emerald)
   screen <bot> [file.png]     save the bot's screen
@@ -75,7 +82,7 @@ const commands: Record<string, (...a: string[]) => Promise<void>> = {
     const game = findGame(GAMES, code)
     const { slot } = await b.site.json<{ slot: { id: string; slotNumber: number } }>('/api/slots', {
       method: 'POST',
-      body: JSON.stringify({ platform: 'GBA', code, sha1: game.sha1, origin: savePath ? 'IMPORTED' : 'NEW' }),
+      body: JSON.stringify({ platform: game.platform, code, sha1: game.sha1, origin: savePath ? 'IMPORTED' : 'NEW' }),
     })
     if (savePath) {
       await b.site.raw(`/api/slots/${slot.id}/import`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: readFileSync(savePath) })
@@ -160,18 +167,23 @@ const commands: Record<string, (...a: string[]) => Promise<void>> = {
     await (await running(name)).press(key, frames ? Number(frames) : 4)
   },
 
+  async touch(name, x, y, frames) {
+    if (!Number.isInteger(Number(x)) || !Number.isInteger(Number(y))) throw new Error('touch takes x and y.')
+    await (await running(name)).touch(Number(x), Number(y), frames ? Number(frames) : 4)
+  },
+
   async walk(name, x, y) {
-    await walkTo(await running(name), Number(x), Number(y))
+    await walkTo(await emerald(name), Number(x), Number(y))
   },
 
   async where(name) {
-    const w = where(await running(name))
+    const w = where(await emerald(name))
     console.log(`  map ${w.group}.${w.num}  at ${w.x},${w.y}${w.moving ? ' (moving)' : ''}  callback2 0x${w.callback2.toString(16)}`)
   },
 
   async screen(name, file) {
     const out = file ?? `${name}.png`
-    writeFileSync(out, (await running(name)).gba!.screenshot())
+    writeFileSync(out, (await running(name)).emu!.screenshot())
     console.log(`  wrote ${out}`)
   },
 

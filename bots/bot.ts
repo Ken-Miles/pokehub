@@ -1,14 +1,15 @@
 import { createHash } from 'crypto'
-import { readdirSync, readFileSync } from 'fs'
+import { closeSync, openSync, readdirSync, readFileSync, readSync } from 'fs'
 import { join } from 'path'
 import type { Socket } from 'socket.io-client'
-import { framesDue, GBA_FPS } from '@/lib/client/emulator'
-import { Gba, KEY, type Button } from './core'
+import { DS_FPS, framesDue, GBA_FPS } from '@/lib/client/emulator'
+import { readGbaHeader, readNdsHeader } from '@/lib/games'
+import { Ds, Gba, KEY, type Button } from './core'
 import { Site } from './site'
 
 /**
- * One bot (FR-36, ADR-023): a bot account playing its slot's game on our core, at
- * the GBA's own speed, through the same API and relay as the play page
+ * One bot (FR-36, ADR-023): a bot account playing its slot's GBA or DS game on our
+ * cores, at the console's own speed, through the same API and relay as the play page
  * (components/Player.tsx, components/LinkCable.tsx). Game files come only from the
  * bot host's read-only folder; only header code + SHA-1 go to the site.
  */
@@ -17,24 +18,31 @@ interface Slot { id: string; slotNumber: number; platform: string; gameCode: str
 interface LinkView { state: string; isHost?: boolean; seats: { seat: number; username: string; mine: boolean; ready?: boolean; left?: boolean; slot: { id: string } | null }[] }
 interface Friend { userId: string; username: string; busy: boolean }
 
-export interface GameFile { code: string; sha1: string; path: string }
+export type BotPlatform = 'GBA' | 'NDS'
+export interface GameFile { platform: BotPlatform; code: string; sha1: string; path: string }
 
-/** Every .gba in the folder by header code (0xAC). Read once per lookup; the folder is read-only. */
-export function findGame(dir: string, code: string): GameFile {
+/** The .gba or .nds in the folder with this header code. Only headers are read until one matches; the folder is read-only. */
+export function findGame(dir: string, code: string, platform?: BotPlatform): GameFile {
   for (const name of readdirSync(dir)) {
-    if (!name.toLowerCase().endsWith('.gba')) continue
+    const ext = name.toLowerCase().slice(-4)
+    const p: BotPlatform | null = ext === '.gba' ? 'GBA' : ext === '.nds' ? 'NDS' : null
+    if (!p || (platform && p !== platform)) continue
     const path = join(dir, name)
-    const bytes = readFileSync(path)
-    if (bytes.subarray(0xac, 0xb0).toString('latin1') !== code) continue
-    return { code, sha1: createHash('sha1').update(bytes).digest('hex'), path }
+    const head = Buffer.alloc(0x200) // a DS header; a GBA's is the first 0xC0
+    const fd = openSync(path, 'r')
+    readSync(fd, head, 0, head.length, 0)
+    closeSync(fd)
+    if ((p === 'GBA' ? readGbaHeader(head) : readNdsHeader(head))?.code !== code) continue
+    return { platform: p, code, sha1: createHash('sha1').update(readFileSync(path)).digest('hex'), path }
   }
-  throw new Error(`No ${code} game in ${dir}.`)
+  throw new Error(`No ${platform ? `${platform} ` : ''}${code} game in ${dir}.`)
 }
 
 const sha256 = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
 
 export class Bot {
   gba: Gba | null = null
+  ds: Ds | null = null
   slot: Slot | null = null
   game: GameFile | null = null
   /** The plugged-in cable: session, my seat, the relay socket. */
@@ -58,6 +66,8 @@ export class Bot {
   private versionId: string | null = null
   private savedHash = ''
   private pluggedWaiters: (() => void)[] = []
+  /** The DS's network tunnel to the DS gateway (FR-38), when DS online is on. */
+  private tunnel: WebSocket | null = null
 
   constructor(
     readonly name: string,
@@ -67,6 +77,11 @@ export class Bot {
 
   log(msg: string) {
     console.log(`[${this.name}] ${msg}`)
+  }
+
+  /** Whichever console the bot is playing. */
+  get emu(): Gba | Ds | null {
+    return this.gba ?? this.ds
   }
 
   get running() {
@@ -83,15 +98,16 @@ export class Bot {
   async start(slotNumber?: number) {
     if (this.running) return
     const { slots } = await this.site.json<{ slots: Slot[] }>('/api/slots')
-    const slot = slots.find((s) => s.platform === 'GBA' && (slotNumber === undefined || s.slotNumber === slotNumber))
-    if (!slot) throw new Error('This bot has no GBA slot. Use setup first.')
-    const game = findGame(this.gamesDir, slot.gameCode)
-    await this.site.json('/api/games/verify', { method: 'POST', body: JSON.stringify({ platform: 'GBA', code: game.code, sha1: game.sha1 }) })
+    const slot = slots.find((s) => (s.platform === 'GBA' || s.platform === 'NDS') && (slotNumber === undefined || s.slotNumber === slotNumber))
+    if (!slot) throw new Error('This bot has no GBA or DS slot. Use setup first.')
+    const game = findGame(this.gamesDir, slot.gameCode, slot.platform as BotPlatform)
+    await this.site.json('/api/games/verify', { method: 'POST', body: JSON.stringify({ platform: game.platform, code: game.code, sha1: game.sha1 }) })
     const res = await this.site.raw(`/api/slots/${slot.id}/saves/current`)
     const save = res.status === 204 ? null : new Uint8Array(await res.arrayBuffer())
     this.versionId = res.headers.get('x-version-id') === 'none' ? null : res.headers.get('x-version-id')
     this.savedHash = save ? sha256(save) : ''
-    this.gba = await Gba.boot(readFileSync(game.path), save)
+    if (game.platform === 'GBA') this.gba = await Gba.boot(readFileSync(game.path), save)
+    else this.ds = await this.bootDs(readFileSync(game.path), save)
     this.slot = slot
     this.game = game
 
@@ -138,7 +154,7 @@ export class Bot {
     // shortcut: every bot runs on the host's main thread; move each to a worker thread when one host runs many bots.
     this.timer = setInterval(() => {
       const now = performance.now()
-      const due = framesDue(now - last, debt)
+      const due = framesDue(now - last, debt, 1000 / (this.ds ? DS_FPS : GBA_FPS))
       last = now
       debt = due.debtMs
       for (let i = 0; i < due.frames; i++) this.step()
@@ -147,12 +163,13 @@ export class Bot {
   }
 
   private step() {
-    const gba = this.gba!
-    if (!gba.frame(this.controlledBy ? this.adminKeys | this.tapped : this.keys)) return // held back for the cable child: the frame didn't run
+    const emu = this.emu!
+    if (!emu.frame(this.controlledBy ? this.adminKeys | this.tapped : this.keys)) return // held back for the cable child: the frame didn't run
     this.tapped = 0
     this.frames++
-    if (this.cable) for (const m of gba.takeCable()) this.cable.peer.emit('link:msg', this.cable.sessionId, { t: 'c', p: this.cable.seat, ...m })
-    if (this.air) {
+    const gba = this.gba
+    if (this.cable && gba) for (const m of gba.takeCable()) this.cable.peer.emit('link:msg', this.cable.sessionId, { t: 'c', p: this.cable.seat, ...m })
+    if (this.air && gba) {
       for (const m of gba.takeAir()) this.air.peer.emit('link:msg', this.air.sessionId, { t: 'a', p: this.air.seat, ...m })
       const trace = gba.airTrace()
       if (trace) this.log(`wireless adapter, recent events (state 0 idle, 1–2 hosting, 3 searching, 4 connecting, 5 connected):\n${trace}`)
@@ -174,7 +191,9 @@ export class Bot {
     this.controlledBy = null
     this.socket?.disconnect()
     this.socket = null
-    this.gba = null
+    this.tunnel?.close()
+    this.tunnel = null
+    this.gba = this.ds = null
     this.log('stopped')
   }
 
@@ -183,7 +202,7 @@ export class Bot {
     this.screenTimer = null
     // shortcut: 10 PNGs a second (ADR-023) on the bot host's main thread; fine for a handful of bots.
     if (on) this.screenTimer = setInterval(() => {
-      if (this.gba) this.socket?.volatile.emit('bot:screen', { png: this.gba.screenshot(), status: this.status })
+      if (this.emu) this.socket?.volatile.emit('bot:screen', { png: this.emu.screenshot(), status: this.status })
     }, 100)
   }
 
@@ -211,6 +230,15 @@ export class Bot {
     await this.wait(4)
   }
 
+  /** Touch the DS's lower screen at x 0–255, y 0–191 for `frames`, then let the game see the release. */
+  async touch(x: number, y: number, frames = 4) {
+    if (!this.ds) throw new Error(`${this.name} is not playing a DS game.`)
+    this.ds.touch(x, y)
+    await this.wait(frames)
+    this.ds?.release()
+    await this.wait(4)
+  }
+
   /** Wait until `ok()` holds, checking every frame, or fail after `timeoutFrames`. */
   async until(ok: () => boolean, timeoutFrames: number, what: string) {
     for (let f = 0; f < timeoutFrames; f++) {
@@ -224,7 +252,7 @@ export class Bot {
 
   /** Upload the game's save if it changed (lib/client/save-sync.ts does the same for a browser). */
   async uploadSave(): Promise<boolean> {
-    const bytes = this.gba?.save()
+    const bytes = this.emu?.save()
     if (!bytes || !this.slot || sha256(bytes) === this.savedHash) return false
     const res = await this.site.raw(`/api/slots/${this.slot.id}/saves`, {
       method: 'POST',
@@ -240,8 +268,13 @@ export class Bot {
 
   // ---------------------------------------------------------------- link cable
 
+  private needGba(what: string) {
+    if (!this.gba) throw new Error(`${this.name} is not playing a GBA game: ${what} plugs into a GBA.`)
+  }
+
   /** Ask a friend (bot or player) who is playing to plug in; they answer like any request. */
   async requestCable(friend: string) {
+    this.needGba('a link cable')
     if (this.air) throw new Error(`${this.name} has its wireless adapter on: the GBA has one serial port.`)
     const { friends } = await this.site.json<{ friends: Friend[] }>(`/api/cable/friends?slotId=${this.slot!.id}`)
     const f = friends.find((x) => x.username === friend.toLowerCase())
@@ -312,6 +345,7 @@ export class Bot {
 
   /** Turn the adapter on and open a room; friends join with `inviteToRoom`. */
   async openRoom(): Promise<string> {
+    this.needGba('a wireless adapter')
     if (this.cable) throw new Error(`${this.name} has a cable plugged in: the GBA has one serial port.`)
     const { id } = await this.site.json<{ id: string }>('/api/wireless', { method: 'POST', body: JSON.stringify({ slotId: this.slot!.id }) })
     await this.airOn(id)
@@ -329,6 +363,7 @@ export class Bot {
   }
 
   async joinRoom(sessionId: string) {
+    this.needGba('a wireless adapter')
     if (this.cable) throw new Error(`${this.name} has a cable plugged in: the GBA has one serial port.`)
     await this.site.json(`/api/wireless/${sessionId}/join`, { method: 'POST' })
     await this.airOn(sessionId)
@@ -378,5 +413,34 @@ export class Bot {
     await this.site.json(air.host ? `/api/link/${air.sessionId}` : `/api/wireless/${air.sessionId}/seat`, { method: 'DELETE' }).catch(() => {})
     air.peer.disconnect()
     this.log(air.host ? 'wireless room closed' : 'left the wireless room')
+  }
+
+  // ---------------------------------------------------------------- DS Wi-Fi (FR-38, FR-39)
+
+  /**
+   * As player.js dsNetwork + boot: the DS's Wi-Fi as Ethernet frames over a tunnel to the
+   * DS gateway, with the bot account's MAC and saved Wi-Fi settings (they hold its WFC user ID).
+   * Without DS online on the site, the DS boots with no network.
+   */
+  private async bootDs(rom: Uint8Array, save: Uint8Array | null): Promise<Ds> {
+    const t = await this.site.json<{ url: string; ticket: string; mac: string }>('/api/ds/tunnel', { method: 'POST' }).catch(() => null)
+    if (!t) return Ds.boot(rom, save)
+    const saved = await this.site.json<{ wifiSettings: string | null }>('/api/ds/console').catch(() => null)
+    const mac = Uint8Array.from(t.mac.split(':'), (h) => parseInt(h, 16))
+    const ds = await Ds.boot(rom, save, mac, saved?.wifiSettings ? Buffer.from(saved.wifiSettings, 'base64') : null)
+    const ws = new WebSocket(`${t.url}/?t=${encodeURIComponent(t.ticket)}`)
+    ws.binaryType = 'arraybuffer'
+    ws.onmessage = (e) => this.ds?.netPush(new Uint8Array(e.data as ArrayBuffer))
+    ws.onclose = (e) => this.tunnel === ws && this.log(`DS network tunnel closed: ${e.code} ${e.reason}`)
+    ds.onNetSend = (frame) => ws.readyState === WebSocket.OPEN && ws.send(frame)
+    let wifiTimer: NodeJS.Timeout | undefined
+    ds.onFirmware = () => {
+      clearTimeout(wifiTimer) // the DS writes its settings in several pieces; save once it's done
+      wifiTimer = setTimeout(() => {
+        this.site.raw('/api/ds/console', { method: 'PUT', body: Buffer.from(ds.wifiSettings()) }).catch((e) => this.log(`Wi-Fi settings not saved: ${e.message}`))
+      }, 2000)
+    }
+    this.tunnel = ws
+    return ds
   }
 }

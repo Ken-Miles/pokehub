@@ -11,9 +11,13 @@ describe('bot friend codes', () => {
     vi.resetModules()
     let calls = 0
     // The first code drawn is all zeros (a bot's); the next one is not.
-    vi.doMock('crypto', async (orig) => ({ ...(await orig<typeof import('crypto')>()), randomInt: () => (calls++ < 12 ? 0 : 7) }))
-    const { newFriendCode, botFriendCode, isBotFriendCode } = await import('@/lib/friend-code')
-    expect(newFriendCode()).toBe('7777-7777-7777')
+    vi.doMock('crypto', async (orig) => ({ ...(await orig<typeof import('crypto')>()), randomInt: () => (calls++ < 8 ? 0 : 7) }))
+    const { newFriendCode, botFriendCode, isBotFriendCode, friendCodeDay } = await import('@/lib/friend-code')
+    // Day 0 adds nothing to the random digits.
+    expect(newFriendCode(Date.UTC(2026, 0, 5))).toBe('7777-7777-7777')
+    // Day 293 (2026-10-25): the last four are 7+0, 7+2, 7+9, 7+3 (mod 10).
+    expect(newFriendCode(Date.UTC(2026, 9, 25))).toBe('7777-7777-7960')
+    expect(friendCodeDay('7777-7777-7960')).toBe(293)
     expect(botFriendCode(5)).toBe('0000-0000-0005')
     expect(botFriendCode(9999)).toBe('0000-0000-9999')
     expect(() => botFriendCode(0)).toThrow()
@@ -149,6 +153,42 @@ describe.skipIf(!existsSync(CORE))('bot host (npm run emulator:build)', () => {
     await bot.stop()
   })
 
+  it('plays a DS game on melonDS, picked by platform when a GBA game shares its code', async () => {
+    const { Bot } = await import('@/bots/bot')
+    const { Site } = await import('@/bots/site')
+    const games = mkdtempSync(join(tmpdir(), 'bot-games-'))
+    writeFileSync(join(games, 'test.gba'), readFileSync(join(process.cwd(), 'tests/fixtures/link-test.gba'))) // also ZHLE
+    const rom = tinyDsGame('ZHLE')
+    writeFileSync(join(games, 'test.nds'), rom)
+    const sent: { path: string; body: unknown }[] = []
+    class FakeSite extends Site {
+      async raw(path: string, init: RequestInit = {}) {
+        sent.push({ path, body: init.body })
+        if (path === '/api/slots') return Response.json({ slots: [{ id: 's1', slotNumber: 1, platform: 'NDS', gameCode: 'ZHLE', origin: 'NEW', currentVersionId: null }] })
+        if (path.endsWith('/saves/current')) return new Response(null, { status: 204, headers: { 'x-version-id': 'none' } })
+        if (path === '/api/ds/tunnel') throw new Error('POST /api/ds/tunnel: 404 DS online play is not switched on.')
+        return Response.json({ versionId: 'v1' })
+      }
+      socket() {
+        const fake = { on: () => fake, emit() {}, disconnect() {} }
+        return fake as unknown as Socket
+      }
+    }
+    const bot = new Bot('bot5', new FakeSite('http://site.test', 'x'.repeat(32), 'bot5'), games)
+    await bot.start()
+    expect(bot.gba).toBeNull()
+    await bot.hold(['A'], 10)
+    expect(bot.ds!.read32(0x02100000)).toBe(0x12345678) // the program ran
+    expect(bot.ds!.read32(0x02100004) & 0x3ff).toBe(0x3fe) // and saw A held (KEYINPUT, 0 = pressed)
+    await bot.touch(128, 96)
+    const png = bot.ds!.screenshot()
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([256, 384]) // both screens
+    await expect(bot.requestCable('bot6')).rejects.toThrow('not playing a GBA game')
+    await bot.stop()
+    const verify = sent.find((s) => s.path === '/api/games/verify')!
+    expect(JSON.parse(verify.body as string)).toEqual({ platform: 'NDS', code: 'ZHLE', sha1: createHash('sha1').update(rom).digest('hex') })
+  })
+
   it("carries a wireless adapter's messages between two bots' games (FR-35)", async () => {
     const { Gba, KEY } = await import('@/bots/core')
     // The homebrew adapter test program (no game data): seat 0 hosts, seat 1 holds A at power-on and joins.
@@ -249,7 +289,7 @@ describe('watching bots from /admin/bots', () => {
     const botKeys: unknown[] = []
     bot.on('bot:keys', (k) => botKeys.push(k))
     root.emit('bot:keys', 'bot5', 1) // not in control
-    admin.emit('bot:keys', 'bot5', 0x400) // no such button
+    admin.emit('bot:keys', 'bot5', 0x1000) // no such button
     const pressed = next(bot, 'bot:keys')
     admin.emit('bot:keys', 'bot5', 0x41)
     expect(await pressed).toBe(0x41)
@@ -269,3 +309,23 @@ describe('watching bots from /admin/bots', () => {
     await new Promise((r) => server.close(r))
   })
 })
+
+/**
+ * A DS program, assembled here (no game data): ARM9 stores 0x12345678 at 0x02100000, then
+ * KEYINPUT at 0x02100004 forever; ARM7 spins. melonDS direct-boots it like any game.
+ */
+function tinyDsGame(code: string): Buffer {
+  const r = Buffer.alloc(0x20000)
+  r.write('HUBTEST', 0, 'latin1')
+  r.write(code, 0x0c, 'latin1')
+  // ldr r0,=0x02100000; ldr r1,=0x12345678; str r1,[r0]; ldr r3,=0x04000130; 1: ldrh r2,[r3]; str r2,[r0,#4]; b 1b
+  const arm9 = [0xe59f0014, 0xe59f1014, 0xe5801000, 0xe59f3010, 0xe1d320b0, 0xe5802004, 0xeafffffc, 0x02100000, 0x12345678, 0x04000130]
+  arm9.forEach((w, i) => r.writeUInt32LE(w, 0x200 + i * 4))
+  r.writeUInt32LE(0xeafffffe, 0x300) // b .
+  // ARM9 then ARM7: ROM offset, entry, RAM address, size.
+  ;[0x200, 0x02000000, 0x02000000, arm9.length * 4, 0x300, 0x037f8000, 0x037f8000, 4].forEach((v, i) => r.writeUInt32LE(v, 0x20 + i * 4))
+  r.writeUInt32LE(0x400, 0x80) // ROM size used
+  r.writeUInt32LE(0x4000, 0x84) // header size
+  r.writeUInt16LE(0xcf56, 0x15c) // the logo CRC lib/games.ts readNdsHeader checks
+  return r
+}
