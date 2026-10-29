@@ -14,7 +14,8 @@ moves traffic. The live colour never stops serving.
 ## How versions work
 
 - **A deploy is a commit.** `deploy/deploy.sh` refuses a dirty tree, pushes HEAD to
-  `macserver:websites/pokehub/repo.git` (branch `prod`), and the server builds that exact SHA.
+  GitHub (`origin`, branch `prod`), and macserver clones that repo and builds the exact SHA.
+  The repo is public (`https://github.com/Ken-Miles/pokehub`), so macserver needs no credentials.
   Nothing is copied from your working directory.
 - **The history is the log.** `~/websites/pokehub/shared/deploys.log` gets one line per
   deploy (`time colour sha`). `./deploy/deploy.sh --status` shows it.
@@ -74,9 +75,9 @@ Shorthand: "on macserver" means `ssh macserver`.
    ```
    Re-run this when a unit file changes in the repo.
 
-6. Create the server layout and the bare repo (on macserver):
+6. Create the server layout (on macserver):
    ```bash
-   mkdir -p ~/websites/pokehub/{shared,releases,run,backups} && git init --bare -q ~/websites/pokehub/repo.git && echo blue > ~/websites/pokehub/shared/active
+   mkdir -p ~/websites/pokehub/{shared,releases,run,backups} && echo blue > ~/websites/pokehub/shared/active
    ```
    Then create `~/websites/pokehub/shared/.env` from `deploy/env.example` and fill in the secrets.
    Keep `TRUSTED_PROXY_HOPS` at 2 until you have checked the client IP (below).

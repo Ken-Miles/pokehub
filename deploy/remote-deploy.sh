@@ -9,7 +9,7 @@
 set -euo pipefail
 
 BASE="$HOME/websites/pokehub"
-REPO="$BASE/repo.git"             # bare repo the Mac pushes to
+REPO_URL="${POKEHUB_REPO_URL:-https://github.com/Ken-Miles/pokehub.git}"  # public: no credentials needed
 SHARED="$BASE/shared"
 STATE="$SHARED/active"            # blue | red: the colour nginx sends traffic to
 LOG="$SHARED/deploys.log"         # "<utc time> <colour> <sha>" per deploy: the history rollback reads
@@ -32,7 +32,7 @@ if [ "${1:-}" = "--services" ]; then
   SHA="${2:?usage: --services <sha>}"
   [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || die "not a full commit sha: $SHA"
   DIR="$BASE/services"
-  [ -d "$DIR/.git" ] || git clone --quiet "$REPO" "$DIR"
+  [ -d "$DIR/.git" ] || git clone --quiet "$REPO_URL" "$DIR"
   git -C "$DIR" fetch --quiet origin
   git -C "$DIR" reset --hard --quiet "$SHA"
   echo "==> compose up at $SHA"
@@ -57,7 +57,6 @@ else
   SHA="${1:?usage: remote-deploy.sh <sha> | --rollback | --services <sha>}"
 fi
 [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || die "not a full commit sha: $SHA"
-git -C "$REPO" cat-file -e "$SHA^{commit}" 2>/dev/null || die "$SHA is not in $REPO (push it first)"
 
 # Expand/contract (docs/design.md, deploy/README.md): the live colour still runs
 # against this database, so a migration may only add things until the next deploy.
@@ -96,8 +95,9 @@ wait_healthy() {
 
 build_and_start() {
   echo "==> building $SHA into $TARGET (:$TPORT)"
-  [ -d "$DIR/.git" ] || git clone --quiet "$REPO" "$DIR"
+  [ -d "$DIR/.git" ] || git clone --quiet "$REPO_URL" "$DIR"
   git -C "$DIR" fetch --quiet origin
+  git -C "$DIR" cat-file -e "$SHA^{commit}" 2>/dev/null || die "$SHA is not on origin (deploy.sh pushes it to prod)"
   git -C "$DIR" reset --hard --quiet "$SHA"
   git -C "$DIR" clean -fdq          # ignored files (node_modules, .next, .env) survive
   ln -sfn "$SHARED/.env" "$DIR/.env"
