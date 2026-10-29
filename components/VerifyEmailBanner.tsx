@@ -9,7 +9,6 @@ import { api } from '@/lib/client/api'
  */
 export function VerifyEmailBanner({ result, welcome }: { result: string | null; welcome: boolean }) {
   const [verified, setVerified] = useState<boolean | null>(null)
-  const [note, setNote] = useState('')
 
   useEffect(() => {
     api<{ emailVerified: boolean }>('/api/account')
@@ -17,30 +16,16 @@ export function VerifyEmailBanner({ result, welcome }: { result: string | null; 
       .catch(() => setVerified(null))
   }, [])
 
-  async function resend() {
-    setNote('')
-    try {
-      await api('/api/auth/verify/resend', { method: 'POST' })
-      setNote('Sent — check your inbox. Older links no longer work.')
-    } catch (e) {
-      setNote((e as Error).message)
-    }
-  }
-
   if (result === '1' && verified) return <Box>Email verified — you can now add friends and trade.</Box>
   if (verified !== false) return null
   return (
     <Box>
       {result === '0'
-        ? 'That verification link is invalid, used or expired.'
+        ? 'That verification link is invalid, used or expired. There is no resend yet, so this account can only play and sync.'
         : welcome
-          ? 'Welcome! Check your email to verify your account.'
+          ? 'Welcome! We emailed you a verification link (from noreply@pokehub.aidenpearce.space). Check your spam folder too.'
           : 'Your email is not verified yet.'}{' '}
-      You can play and sync now; verify to add friends and trade.{' '}
-      <button className="underline" onClick={resend}>
-        Send a new link
-      </button>
-      {note && <span className="ml-2 text-muted">{note}</span>}
+      You can play and sync now; verify to add friends and trade.
     </Box>
   )
 }

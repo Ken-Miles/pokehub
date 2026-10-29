@@ -5,6 +5,7 @@ import { clientIp } from '@/lib/client-ip'
 import { prisma } from '@/lib/db'
 import { sendResetEmail } from '@/lib/email-tokens'
 import { HttpError, route } from '@/lib/http'
+import { logger } from '@/lib/logger'
 import { rateLimit } from '@/lib/rate-limit'
 
 const body = z.object({ email: emailSchema })
@@ -24,7 +25,13 @@ export const POST = route(async (req: Request) => {
   const user = await prisma.user.findUnique({ where: { email } })
   // Per-address limit too, so one inbox can't be flooded from many IPs.
   if (user && (await rateLimit(`reset:${user.id}`, 3, 3600))) {
-    await sendResetEmail(user.id, user.email)
+    try {
+      await sendResetEmail(user.id, user.email)
+    } catch (err) {
+      // Still 204: the answer must not reveal whether the address is registered.
+      logger.error({ err, userId: user.id }, 'reset email not sent')
+      return new NextResponse(null, { status: 204 })
+    }
     await prisma.authEvent.create({ data: { userId: user.id, username: user.username, event: 'password_reset_requested', ip } })
   }
   return new NextResponse(null, { status: 204 })

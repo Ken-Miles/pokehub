@@ -7,6 +7,8 @@ import { sendVerificationEmail } from '@/lib/email-tokens'
 import { newFriendCode } from '@/lib/friend-code'
 import { HttpError, route } from '@/lib/http'
 import { hashPassword } from '@/lib/password'
+import { logger } from '@/lib/logger'
+import { mailBudgetLeft } from '@/lib/mailer'
 import { rateLimit } from '@/lib/rate-limit'
 
 const body = z.object({ username: usernameSchema, email: emailSchema, password: passwordSchema })
@@ -19,6 +21,9 @@ export const POST = route(async (req: Request) => {
   const parsed = body.safeParse(await req.json())
   if (!parsed.success) throw new HttpError(400, 'invalid', parsed.error.issues[0].message)
   const { username, email, password } = parsed.data
+
+  // One verification email per account, and no resend: check the budget before creating anything.
+  if (!(await mailBudgetLeft())) throw new HttpError(503, 'mail_unavailable', 'Sign-ups are paused while we send the verification emails. Try again later.')
 
   const taken = await prisma.user.findFirst({ where: { OR: [{ username }, { email }] }, select: { username: true } })
   if (taken) {
@@ -36,6 +41,13 @@ export const POST = route(async (req: Request) => {
     }
   }
 
-  await sendVerificationEmail(user.id, email)
+  try {
+    await sendVerificationEmail(user.id, email)
+  } catch (err) {
+    // No email, no account: otherwise nobody could ever verify it (there is no resend).
+    logger.error({ err, userId: user.id }, 'verification email failed; account removed')
+    await prisma.user.delete({ where: { id: user.id } })
+    throw new HttpError(503, 'mail_unavailable', "We couldn't send your verification email. Please try signing up again.")
+  }
   return NextResponse.json({ id: user.id, username: user.username }, { status: 201 })
 })

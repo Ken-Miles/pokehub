@@ -11,5 +11,6 @@ export async function GET(req: Request) {
     if (row) await tx.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: new Date() } })
     return !!row
   })
-  return NextResponse.redirect(new URL(valid ? '/slots?verified=1' : '/slots?verified=0', url))
+  // req.url is the internal localhost address behind a proxy/tunnel, so use the public URL.
+  return NextResponse.redirect(new URL(valid ? '/slots?verified=1' : '/slots?verified=0', process.env.NEXTAUTH_URL ?? url))
 }
