@@ -881,6 +881,7 @@ static struct {
 	int wakeLen, wakeNext;
 	uint32_t waited; // frames the game has waited for a wake-up
 	bool hostAck; // a host's send-and-wait: wake it at once with who received
+	bool dataWoke; // a client was woken for data this frame
 	// adapter
 	enum AirState state;
 	uint32_t config; // SystemConfig: bits 0–7 = wait timeout in frames
@@ -1222,8 +1223,10 @@ static void _airCommand(int cmd) {
 		}
 		break;
 	case 0x1F: { // connect to a host by ID
+		// Any host heard from: Union Room hosts turn their beacon off and on between searches, and an adapter
+		// connects to one between the two; the polls report whether it answered.
 		int seat = 0;
-		while (seat < AIR_SEATS && !(air.beacons[seat].on && air.beacons[seat].id == (uint16_t) air.req[0])) {
+		while (seat < AIR_SEATS && !(air.beacons[seat].id && air.beacons[seat].id == (uint16_t) air.req[0])) {
 			++seat;
 		}
 		if (seat == AIR_SEATS || (air.state != RFU_IDLE && air.state != RFU_SEARCHING)) {
@@ -1244,7 +1247,10 @@ static void _airCommand(int cmd) {
 		}
 		if (air.joining == 1) {
 			words[n++] = cmd == 0x20 ? 0x01000000 : 0x02000000 | air.id; // waiting / gave up
-			if (cmd == 0x21) {
+			if (cmd == 0x20) {
+				uint32_t me = air.id;
+				_airSend(AIR_JOIN, air.hostSeat, &me, 1); // asks until the host is hosting again, as the adapter keeps trying
+			} else {
 				_airDropConnections();
 				air.state = RFU_IDLE;
 			}
@@ -1422,7 +1428,10 @@ static bool _airWakeReady(void) {
 		air.wake[1] = air.lost;
 		air.wakeLen = 2;
 		air.lost = 0;
-	} else if (air.state == RFU_CLIENT ? air.fromHost.count > 0 : (air.fromChild[0].count | air.fromChild[1].count | air.fromChild[2].count | air.fromChild[3].count) > 0) {
+	} else if (air.state == RFU_CLIENT ? air.fromHost.count > 0 && !air.dataWoke : (air.fromChild[0].count | air.fromChild[1].count | air.fromChild[2].count | air.fromChild[3].count) > 0) {
+		// One a frame: a child game queues each packet it's woken for and reads one a frame, and a backlog
+		// from a host whose page runs ahead (32 here, as many as its queue holds) is a link error in one go.
+		air.dataWoke = air.state == RFU_CLIENT;
 		air.wake[0] = 0x99660028;
 		air.wakeLen = 1;
 	} else if ((air.config & 0xFF) && air.waited >= (air.config & 0xFF)) {
@@ -1562,6 +1571,7 @@ static void _airFrame(void) {
 	if (air.clockSlave && !air.wakeLen) {
 		++air.waited;
 	}
+	air.dataWoke = false;
 	_airMaybeClock();
 }
 
@@ -1668,8 +1678,11 @@ EMSCRIPTEN_KEEPALIVE void hub_air_put(int op, int from, int n) {
 		air.beacons[from].on = false;
 		break;
 	case AIR_JOIN: {
+		if (air.state != RFU_HOST_OPEN) {
+			break; // not hosting right now: no answer, so the child asks again
+		}
 		int slot = -1;
-		for (int s = 0; s < 4 && air.state == RFU_HOST_OPEN; ++s) {
+		for (int s = 0; s < 4; ++s) {
 			if (air.childSeat[s] == from) {
 				slot = s; // asked again: same slot
 				break;
