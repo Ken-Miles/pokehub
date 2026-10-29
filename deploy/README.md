@@ -56,22 +56,22 @@ Shorthand: "on macserver" means `ssh macserver`.
    sudo rm -f /etc/nginx/sites-enabled/default
    ```
 
-3. Install the flip helper and its sudo rule, from the repo on your Mac:
+3. Install the flip helper and its sudo rule. Run these on your Mac from the repo root:
    ```bash
-   ssh macserver 'cat > /tmp/pokehub-flip' < deploy/root/pokehub-flip && ssh -t macserver 'sudo install -m 0755 /tmp/pokehub-flip /usr/local/sbin/pokehub-flip'
+   cd ~/Documents/automation/pokemonhub-automation && ssh macserver 'cat > /tmp/pokehub-flip' < deploy/root/pokehub-flip && ssh -t macserver 'sudo install -m 0755 /tmp/pokehub-flip /usr/local/sbin/pokehub-flip'
    ```
    ```bash
-   ssh macserver 'cat > /tmp/sudoers-pokehub' < deploy/root/sudoers-pokehub && ssh -t macserver 'sudo install -m 0440 /tmp/sudoers-pokehub /etc/sudoers.d/pokehub && sudo visudo -cf /etc/sudoers.d/pokehub'
+   cd ~/Documents/automation/pokemonhub-automation && ssh macserver 'cat > /tmp/sudoers-pokehub' < deploy/root/sudoers-pokehub && ssh -t macserver 'sudo install -m 0440 /tmp/sudoers-pokehub /etc/sudoers.d/pokehub && sudo visudo -cf /etc/sudoers.d/pokehub'
    ```
 
 4. Install the nginx site and upstream, then check and reload:
    ```bash
-   for f in pokehub.conf pokehub-upstream.conf; do ssh macserver "cat > /tmp/$f" < deploy/nginx/$f; done && ssh -t macserver 'sudo install -m 0644 /tmp/pokehub.conf /tmp/pokehub-upstream.conf /etc/nginx/conf.d/ && sudo nginx -t && sudo systemctl reload nginx'
+   cd ~/Documents/automation/pokemonhub-automation && for f in pokehub.conf pokehub-upstream.conf; do ssh macserver "cat > /tmp/$f" < deploy/nginx/$f; done && ssh -t macserver 'sudo install -m 0644 /tmp/pokehub.conf /tmp/pokehub-upstream.conf /etc/nginx/conf.d/ && sudo nginx -t && sudo systemctl reload nginx'
    ```
 
 5. Install the user units from your Mac (the units are not needed until the first deploy). Files are piped over ssh rather than copied with `scp`:
    ```bash
-   ssh macserver 'mkdir -p ~/.config/systemd/user' && for f in deploy/systemd/*.service; do ssh macserver "cat > ~/.config/systemd/user/$(basename $f)" < "$f"; done && ssh macserver 'systemctl --user daemon-reload'
+   cd ~/Documents/automation/pokemonhub-automation && ssh macserver 'mkdir -p ~/.config/systemd/user' && for f in deploy/systemd/*.service; do ssh macserver "cat > ~/.config/systemd/user/$(basename $f)" < "$f"; done && ssh macserver 'systemctl --user daemon-reload'
    ```
    Re-run this when a unit file changes in the repo.
 
