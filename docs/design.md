@@ -133,6 +133,10 @@ through the save pipeline.
   allows only the WFC user ID bound to the account (`ds_consoles`). The site allocates new WFC IDs
   (dwc's repeat). The page saves the DS's Wi-Fi settings (`/api/ds/console`, 768 bytes) and boots
   with them. Frames from any IP but the DS's lease are dropped. Check: `spikes/ds-wifi/signin-check.mts`.
+- Dev: desktop melonDS (Direct mode) joins through `spikes/ds-wifi/mac-bridge.mts <username>`: a
+  macOS feth pair, BPF via `mac-bpf.py` (sudo), the account's tunnel. melonDS's MAC override
+  clears the `02:` bit, so `--firmware` writes a copy of the operator's own dump with the
+  account's MAC. The game still needs its `https://nas` sign-in as http (no hub.cpp rewrite there).
 - Not built: the DS Wi-Fi tunnel in the product player, GTS.
 
 ## The link cable and the Wireless Adapter (ADR-019…022)
@@ -162,6 +166,12 @@ through the save pipeline.
   carrying (`lib/link-sessions.ts#endOrphanedLinks`), and a page whose relay connection
   drops turns its cable or adapter off.
 
+## Friend codes (FR-03, ADR-029)
+- `RRRR-RRRR-DDDD`: 8 random digits, then the join day (days since 2026-01-05), each
+  day digit masked by a random one so it can't be read by eye; `friendCodeDay` decodes it.
+  Random digits `0000-0000` are redrawn, since that prefix is the bots'.
+  Codes issued before 2026-10-25 are fully random and were kept.
+
 ## Test bots (FR-36, ADR-023)
 - A separate bot host (`bots/main.ts`, its own container) runs bot players on our
   mGBA core in Node, one worker thread each, with games from a hand-filled
@@ -186,6 +196,9 @@ through the save pipeline.
   frame waits stop (so its commands pause), and control returns when they give it back,
   stop watching or drop. Taking/returning control is audited (`bot.control`,
   `bot.release`). Not built: bot settings from the page, worker threads.
+- Built: DS bots on our melonDS core (`Ds` in `bots/core.ts`): DS slots boot like GBA ones,
+  plus X/Y, `touch`, and the play page's Wi-Fi tunnel when DS online is on (FR-38/FR-39).
+  Cable and wireless rooms stay GBA only; `/admin/bots` has no touch input yet.
 
 ## Save ingest path
 `POST /api/slots/:id/saves` → `checkUpload` (size, lock, parent) →
@@ -206,7 +219,7 @@ other tabs stop.
   same one.
 - `data/rom-hashes.json` must be filled from the No-Intro DAT before launch;
   `ALLOW_UNLISTED_ROMS` must be `false` in production.
-- Web app + worker: systemd, blue/green behind nginx (copy Stork v2's `deploy/`).
+- Web app + worker: systemd user units, blue/green behind nginx on macserver. Kit and runbook: `deploy/README.md` (ADR-030). Relay state is per process, so `LinkSession.relayOwner` marks which colour holds a session.
   Set `TRUSTED_PROXY_HOPS=1` behind that nginx (2 if a CDN sits in front of it):
   `server/main.ts` resolves the client IP for rate limits from the socket address
   and that many `X-Forwarded-For` hops, and nginx must append with
