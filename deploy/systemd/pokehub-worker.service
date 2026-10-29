@@ -1,0 +1,14 @@
+# Trade worker + sweepers (worker/main.ts). Follows the live colour: `current` points at it.
+[Unit]
+Description=Pokémon Hub worker
+
+[Service]
+WorkingDirectory=%h/websites/pokehub/current
+EnvironmentFile=%h/websites/pokehub/shared/.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run start:worker
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

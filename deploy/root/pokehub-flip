@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Root-owned, installed at /usr/local/sbin/pokehub-flip. The only privileged step of a deploy:
+# point nginx's upstream at one colour's port and reload. Whitelisted for user j in sudoers.
+set -euo pipefail
+
+case "${1:-}" in
+  4000|4001) ;;
+  *) echo "refusing port '${1:-}': must be 4000 (blue) or 4001 (red)" >&2; exit 2 ;;
+esac
+
+UPSTREAM=/etc/nginx/conf.d/pokehub-upstream.conf
+tmp="$(mktemp)"
+cp "$UPSTREAM" "$tmp.old" 2>/dev/null || true
+printf 'upstream pokehub_backend { server 127.0.0.1:%s; }\n' "$1" > "$tmp"
+install -m 0644 "$tmp" "$UPSTREAM"
+rm -f "$tmp"
+
+# A bad config must never stay in place: restore the old upstream and fail the deploy.
+if ! nginx -t; then
+  install -m 0644 "$tmp.old" "$UPSTREAM"
+  rm -f "$tmp.old"
+  echo "nginx config test failed; upstream left unchanged" >&2
+  exit 1
+fi
+rm -f "$tmp.old"
+systemctl reload nginx   # graceful: sockets already open keep their old colour until they close
+echo "nginx: pokehub_backend -> 127.0.0.1:$1"

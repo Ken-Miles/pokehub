@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io'
 import { prisma } from '@/lib/db'
 import { MAX_ROOM } from '@/lib/link-rules'
-import { endOrphanedLinks, endSession, seatsOf } from '@/lib/link-sessions'
+import { claimRelay, endOrphanedLinks, endSession, seatsOf } from '@/lib/link-sessions'
 import { leaveRoom } from '@/lib/wireless'
 import { logger } from '@/lib/logger'
 import { setPlaying } from '@/lib/realtime'
@@ -82,6 +82,8 @@ export function attachLinkRelay(io: Server) {
       const s = await seatsOf(socket.data.userId, sessionId).catch(() => null)
       if (!s || s.state === 'ENDED') return ack?.({ ok: false })
       joined(socket).set(sessionId, { seats: new Set(s.seats), userIds: s.userIds, roomMember: s.mode === 'WIRELESS' && s.hostId !== socket.data.userId })
+      // First relay to touch the session claims it for this colour (see lib/deploy.ts).
+      await claimRelay(sessionId).catch((err) => logger.warn({ err, sessionId }, 'relay owner claim failed'))
       if (s.mode === 'WIRELESS') {
         const seats = airSeats.get(sessionId) ?? new Map<number, string>()
         for (const seat of s.seats) seats.set(seat, socket.id) // a reused seat's new page replaces the old one

@@ -1,0 +1,2 @@
+# Lets user j flip Pokémon Hub between blue and red, and nothing else. Install as /etc/sudoers.d/pokehub (mode 0440).
+j ALL=(root) NOPASSWD: /usr/local/sbin/pokehub-flip 4000, /usr/local/sbin/pokehub-flip 4001

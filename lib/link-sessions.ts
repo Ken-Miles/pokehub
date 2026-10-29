@@ -18,6 +18,7 @@ import {
   type SessionState,
 } from '@/lib/link-rules'
 import { MAX_DELAY, MIN_DELAY } from '@/lib/client/lockstep'
+import { DEPLOY_COLOR } from '@/lib/deploy'
 import { emitToUser } from '@/lib/realtime'
 import { checkRom, romRejectionMessage } from '@/lib/rom-allowlist'
 import type { Rejection } from '@/lib/save-rules'
@@ -187,6 +188,11 @@ export async function endSession(actorId: string | null, sessionId: string, reas
   return true
 }
 
+/** The first relay to touch a session claims it for this colour (lib/deploy.ts). */
+export async function claimRelay(sessionId: string): Promise<void> {
+  await prisma.linkSession.updateMany({ where: { id: sessionId, relayOwner: null }, data: { relayOwner: DEPLOY_COLOR } })
+}
+
 /**
  * At server start: end every link the relay was carrying. Its state lives in the
  * process, so after a restart no page is joined any more and nothing would ever
@@ -194,8 +200,15 @@ export async function endSession(actorId: string | null, sessionId: string, reas
  * need the relay yet and survive.
  */
 export async function endOrphanedLinks(): Promise<number> {
+  // Only this colour's sessions (or unclaimed ones): the other colour may still be
+  // carrying live links while this one starts during a deploy.
   const orphans = await prisma.linkSession.findMany({
-    where: { OR: [{ state: 'ACTIVE' }, { state: 'LOBBY', mode: { in: ['CABLE', 'WIRELESS'] } }] },
+    where: {
+      AND: [
+        { OR: [{ relayOwner: null }, { relayOwner: DEPLOY_COLOR }] },
+        { OR: [{ state: 'ACTIVE' }, { state: 'LOBBY', mode: { in: ['CABLE', 'WIRELESS'] } }] },
+      ],
+    },
     select: { id: true },
   })
   for (const s of orphans) await endSession(null, s.id, 'disconnected')

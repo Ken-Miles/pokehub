@@ -364,6 +364,8 @@ model LinkSession {
   createdAt  DateTime  @default(now())
   startedAt  DateTime?
   endedAt    DateTime?
+  /// Which deploy colour (or "dev") holds this session's relay state (lib/deploy.ts). Null = unclaimed.
+  relayOwner String?
 
   seats LinkSeat[]
 

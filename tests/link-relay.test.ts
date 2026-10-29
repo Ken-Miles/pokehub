@@ -47,6 +47,7 @@ describe('relay: a wireless room (ADR-024)', () => {
     const seatOf: Record<string, number> = { host: 0, ann: 1, bob: 2 }
     vi.doMock('@/lib/db', () => ({ prisma: {} }))
     vi.doMock('@/lib/link-sessions', () => ({
+      claimRelay: async () => {},
       endOrphanedLinks: async () => 0,
       endSession: async () => {},
       seatsOf: async (userId: string) => ({ state: 'ACTIVE', mode: 'WIRELESS', hostId: 'host', seats: [seatOf[userId]], userIds: Object.keys(seatOf) }),

@@ -1,0 +1,17 @@
+# User unit on macserver (~/.config/systemd/user/). Colour red, port 4001. See deploy/README.md.
+[Unit]
+Description=Pokémon Hub (red, :4001)
+
+[Service]
+WorkingDirectory=%h/websites/pokehub/releases/red
+EnvironmentFile=%h/websites/pokehub/shared/.env
+EnvironmentFile=-%h/websites/pokehub/shared/color-red.env
+Environment=PORT=4001 NODE_ENV=production
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,55 @@
+# Backing services for macserver. Everything binds to 127.0.0.1. See deploy/README.md.
+# Started by deploy/deploy.sh --services (it runs this file from the pinned commit).
+name: pokehub
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: pokehub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pokehub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in shared/.env}
+      POSTGRES_DB: pokehub
+    # 5433, not 5432: macserver's own Postgres already listens on 5432 (same as the dev Mac).
+    ports: ["127.0.0.1:5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pokehub"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: [redisdata:/data]
+
+  # S3-compatible save blob storage (SeaweedFS). No identities = no auth: localhost only.
+  s3:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    command: server -dir=/data -s3 -s3.port=8333 -ip.bind=0.0.0.0 -volume.max=0
+    ports: ["127.0.0.1:9000:8333"]
+    volumes: [s3data:/data]
+
+  # Stateless save parser. No network at all: it talks to the app over a unix socket (NFR-04).
+  save-service:
+    build: ../save-service
+    image: pokehub-save-service:prod
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "${POKEHUB_UID:-1000}:${POKEHUB_GID:-1000}"   # the socket must be writable by user j
+    environment:
+      LISTEN_SOCKET: /run/savesvc/save.sock
+    volumes: ["${POKEHUB_RUN_DIR:-/home/j/websites/pokehub/run}:/run/savesvc"]
+
+volumes:
+  pgdata:
+  redisdata:
+  s3data:
